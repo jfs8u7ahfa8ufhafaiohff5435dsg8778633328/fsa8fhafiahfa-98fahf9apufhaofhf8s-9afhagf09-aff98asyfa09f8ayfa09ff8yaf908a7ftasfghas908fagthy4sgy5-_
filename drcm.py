@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QInputDialog, QStyle, QStyleOptionSlider
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize, QSettings, QPoint
-from PySide6.QtGui import QFont, QAction, QColor
+from PySide6.QtGui import QFont, QIcon, QPalette, QColor, QAction, QFontDatabase, QDrag, QPixmap, QPainter, QBrush, QPen, QLinearGradient, QDesktopServices
 
 # ============== HELPER FUNCTIONS ==============
 def get_hwid():
