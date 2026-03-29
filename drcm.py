@@ -19,51 +19,8 @@ from PySide6.QtWidgets import (
     QSlider, QCheckBox, QSpinBox, QGroupBox, QScrollArea,
     QSizePolicy, QInputDialog, QStyle, QStyleOptionSlider
 )
-from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize, QSettings, QPoint, QByteArray, QMimeData, QRect
-from PySide6.QtGui import QFont, QIcon, QPalette, QColor, QAction, QFontDatabase, QDrag, QPixmap, QPainter, QBrush, QPen, QLinearGradient, QDesktopServices
-from PySide6.QtMultimedia import QSoundEffect
-
-def get_hwid():
-    """Get unique hardware ID from system"""
-    try:
-        import wmi
-        c = wmi.WMI()
-        board_serial = ""
-        cpu_id = ""
-        bios_serial = ""
-        
-        for board in c.Win32_BaseBoard():
-            board_serial = board.SerialNumber.strip()
-        for cpu in c.Win32_Processor():
-            cpu_id = cpu.ProcessorId.strip()
-        for bios in c.Win32_BIOS():
-            bios_serial = bios.SerialNumber.strip()
-        
-        hwid_string = f"{board_serial}{cpu_id}{bios_serial}"
-        return hashlib.sha256(hwid_string.encode()).hexdigest()
-    except:
-        try:
-            import win32api
-            drive = win32api.GetVolumeInformation("C:\\")
-            return hashlib.sha256(str(drive[1]).encode()).hexdigest()
-        except:
-            return hashlib.sha256(os.environ.get('COMPUTERNAME', '').encode()).hexdigest()
-
-def verify_key(key, hwid):
-    """Verify if key is valid for this HWID and within 24 hours"""
-    try:
-        decoded = base64.b64decode(key).decode()
-        stored_hwid, expiry = decoded.split("|")
-        expiry_date = datetime.fromisoformat(expiry)
-        return stored_hwid == hwid and expiry_date > datetime.now()
-    except:
-        return False
-
-def generate_key(hwid, hours=24):
-    """Generate a key valid for specified hours for this HWID"""
-    expiry = datetime.now() + timedelta(hours=hours)
-    key_string = f"{hwid}|{expiry.isoformat()}"
-    return base64.b64encode(key_string.encode()).decode()
+from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize, QSettings, QPoint
+from PySide6.QtGui import QFont, QAction
 
 class ClickableSlider(QSlider):
     def __init__(self, orientation=Qt.Horizontal, parent=None):
@@ -106,265 +63,11 @@ class ClickableSlider(QSlider):
             self.setValue(int(value))
         super().mousePressEvent(event)
 
-class DraggableDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        self.drag_pos = None
-        
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.drag_pos = event.globalPosition().toPoint()
-            
-    def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton and self.drag_pos is not None:
-            self.move(self.pos() + event.globalPosition().toPoint() - self.drag_pos)
-            self.drag_pos = event.globalPosition().toPoint()
-            
-    def mouseReleaseEvent(self, event):
-        self.drag_pos = None
-
-class KeyDialog(DraggableDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("DRCM - Authentication")
-        self.setFixedSize(450, 320)
-        self.setup_ui()
-        
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        title_bar = QWidget()
-        title_bar.setFixedHeight(35)
-        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
-        title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(10, 5, 10, 5)
-        title_label = QLabel("DRCM - Authentication")
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        close_btn = QPushButton("×")
-        close_btn.setFixedSize(32, 28)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                border: 1px solid #5a5a5a;
-                font-size: 20px;
-                font-weight: bold;
-                color: #ffffff;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #ff4444;
-            }
-        """)
-        close_btn.clicked.connect(self.reject)
-        title_layout.addWidget(close_btn)
-        layout.addWidget(title_bar)
-        
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(20, 20, 20, 20)
-        
-        info_label = QLabel("This software requires authentication.\n\nKey is valid for 24 hours after first use.\n\nContact administrator for access key.")
-        info_label.setAlignment(Qt.AlignCenter)
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #e0e0e0; margin-bottom: 20px;")
-        content_layout.addWidget(info_label)
-        
-        self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText("Enter access key...")
-        self.key_input.setEchoMode(QLineEdit.Password)
-        self.key_input.returnPressed.connect(self.check_key)
-        content_layout.addWidget(self.key_input)
-        
-        self.error_label = QLabel("")
-        self.error_label.setStyleSheet("color: #ff4444;")
-        self.error_label.setAlignment(Qt.AlignCenter)
-        content_layout.addWidget(self.error_label)
-        
-        button_layout = QHBoxLayout()
-        self.check_btn = QPushButton("Unlock")
-        self.check_btn.clicked.connect(self.check_key)
-        button_layout.addWidget(self.check_btn)
-        content_layout.addLayout(button_layout)
-        
-        hwid_short = get_hwid()[:16]
-        hwid_label = QLabel(f"HWID: {hwid_short}...")
-        hwid_label.setStyleSheet("color: #888888; font-size: 10px; margin-top: 20px;")
-        hwid_label.setAlignment(Qt.AlignCenter)
-        content_layout.addWidget(hwid_label)
-        
-        layout.addWidget(content)
-        
-    def check_key(self):
-        key = self.key_input.text()
-        hwid = get_hwid()
-        
-        if verify_key(key, hwid):
-            settings = QSettings("DRCM", "Settings")
-            settings.setValue("auth_key", key)
-            settings.setValue("auth_hwid", hwid)
-            settings.setValue("auth_time", datetime.now().isoformat())
-            self.accept()
-        else:
-            self.error_label.setText("Invalid or expired key!")
-
-class IntegratedColorPicker(DraggableDialog):
-    def __init__(self, parent=None, initial_color="#4a6fa5"):
-        super().__init__(parent)
-        self.setWindowTitle("Choose Color")
-        self.setFixedSize(450, 400)
-        self.selected_color = QColor(initial_color)
-        self.setup_ui()
-        
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        title_bar = QWidget()
-        title_bar.setFixedHeight(35)
-        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
-        title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(10, 5, 10, 5)
-        title_label = QLabel("Choose Color")
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        close_btn = QPushButton("×")
-        close_btn.setFixedSize(32, 28)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                border: 1px solid #5a5a5a;
-                font-size: 20px;
-                font-weight: bold;
-                color: #ffffff;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #ff4444;
-            }
-        """)
-        close_btn.clicked.connect(self.reject)
-        title_layout.addWidget(close_btn)
-        layout.addWidget(title_bar)
-        
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(20, 20, 20, 20)
-        
-        self.preview = QLabel()
-        self.preview.setFixedSize(100, 100)
-        self.preview.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 2px solid gray; border-radius: 5px;")
-        self.preview.setAlignment(Qt.AlignCenter)
-        content_layout.addWidget(self.preview, alignment=Qt.AlignCenter)
-        
-        rgb_layout = QVBoxLayout()
-        
-        red_layout = QHBoxLayout()
-        red_layout.addWidget(QLabel("R:"))
-        self.red_slider = ClickableSlider(Qt.Horizontal)
-        self.red_slider.setRange(0, 255)
-        self.red_slider.setValue(self.selected_color.red())
-        self.red_slider.valueChanged.connect(self.update_from_sliders)
-        red_layout.addWidget(self.red_slider)
-        self.red_spin = QSpinBox()
-        self.red_spin.setRange(0, 255)
-        self.red_spin.setValue(self.selected_color.red())
-        self.red_spin.valueChanged.connect(self.red_slider.setValue)
-        red_layout.addWidget(self.red_spin)
-        rgb_layout.addLayout(red_layout)
-        
-        green_layout = QHBoxLayout()
-        green_layout.addWidget(QLabel("G:"))
-        self.green_slider = ClickableSlider(Qt.Horizontal)
-        self.green_slider.setRange(0, 255)
-        self.green_slider.setValue(self.selected_color.green())
-        self.green_slider.valueChanged.connect(self.update_from_sliders)
-        green_layout.addWidget(self.green_slider)
-        self.green_spin = QSpinBox()
-        self.green_spin.setRange(0, 255)
-        self.green_spin.setValue(self.selected_color.green())
-        self.green_spin.valueChanged.connect(self.green_slider.setValue)
-        green_layout.addWidget(self.green_spin)
-        rgb_layout.addLayout(green_layout)
-        
-        blue_layout = QHBoxLayout()
-        blue_layout.addWidget(QLabel("B:"))
-        self.blue_slider = ClickableSlider(Qt.Horizontal)
-        self.blue_slider.setRange(0, 255)
-        self.blue_slider.setValue(self.selected_color.blue())
-        self.blue_slider.valueChanged.connect(self.update_from_sliders)
-        blue_layout.addWidget(self.blue_slider)
-        self.blue_spin = QSpinBox()
-        self.blue_spin.setRange(0, 255)
-        self.blue_spin.setValue(self.selected_color.blue())
-        self.blue_spin.valueChanged.connect(self.blue_slider.setValue)
-        blue_layout.addWidget(self.blue_spin)
-        rgb_layout.addLayout(blue_layout)
-        
-        content_layout.addLayout(rgb_layout)
-        
-        hex_layout = QHBoxLayout()
-        hex_layout.addWidget(QLabel("Hex:"))
-        self.hex_input = QLineEdit()
-        self.hex_input.setText(self.selected_color.name())
-        self.hex_input.textChanged.connect(self.update_from_hex)
-        hex_layout.addWidget(self.hex_input)
-        content_layout.addLayout(hex_layout)
-        
-        button_layout = QHBoxLayout()
-        ok_btn = QPushButton("OK")
-        ok_btn.clicked.connect(self.accept)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(ok_btn)
-        button_layout.addWidget(cancel_btn)
-        content_layout.addLayout(button_layout)
-        
-        layout.addWidget(content)
-        
-    def update_from_sliders(self):
-        r = self.red_slider.value()
-        g = self.green_slider.value()
-        b = self.blue_slider.value()
-        self.selected_color = QColor(r, g, b)
-        self.preview.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 2px solid gray; border-radius: 5px;")
-        self.hex_input.setText(self.selected_color.name())
-        self.red_spin.setValue(r)
-        self.green_spin.setValue(g)
-        self.blue_spin.setValue(b)
-        
-    def update_from_hex(self):
-        hex_text = self.hex_input.text()
-        if hex_text.startswith("#") and len(hex_text) == 7:
-            color = QColor(hex_text)
-            if color.isValid():
-                self.selected_color = color
-                self.red_slider.blockSignals(True)
-                self.green_slider.blockSignals(True)
-                self.blue_slider.blockSignals(True)
-                self.red_slider.setValue(color.red())
-                self.green_slider.setValue(color.green())
-                self.blue_slider.setValue(color.blue())
-                self.red_spin.setValue(color.red())
-                self.green_spin.setValue(color.green())
-                self.blue_spin.setValue(color.blue())
-                self.red_slider.blockSignals(False)
-                self.green_slider.blockSignals(False)
-                self.blue_slider.blockSignals(False)
-                self.preview.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 2px solid gray; border-radius: 5px;")
-                
-    def get_color(self):
-        return self.selected_color.name()
-
 class CustomTitleBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
-        self.setFixedHeight(40)
+        self.setFixedHeight(32)
         self.setup_ui()
         
     def setup_ui(self):
@@ -373,22 +76,18 @@ class CustomTitleBar(QWidget):
         layout.setSpacing(8)
         
         self.title_label = QLabel("DRCM - Roblox Version Manager")
-        self.title_label.setStyleSheet("""
-            font-size: 13px; 
-            font-weight: bold;
-            color: #e0e0e0;
-        """)
+        self.title_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #e0e0e0;")
         layout.addWidget(self.title_label)
         
         layout.addStretch()
         
-        self.min_btn = QPushButton("—")
-        self.min_btn.setFixedSize(36, 32)
+        self.min_btn = QPushButton("-")
+        self.min_btn.setFixedSize(32, 28)
         self.min_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
                 border: 1px solid #5a5a5a;
-                font-size: 16px;
+                font-size: 14px;
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
@@ -401,12 +100,12 @@ class CustomTitleBar(QWidget):
         layout.addWidget(self.min_btn)
         
         self.max_btn = QPushButton("□")
-        self.max_btn.setFixedSize(36, 32)
+        self.max_btn.setFixedSize(32, 28)
         self.max_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
                 border: 1px solid #5a5a5a;
-                font-size: 18px;
+                font-size: 14px;
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
@@ -418,13 +117,13 @@ class CustomTitleBar(QWidget):
         self.max_btn.clicked.connect(self.toggle_maximize)
         layout.addWidget(self.max_btn)
         
-        self.close_btn = QPushButton("×")
-        self.close_btn.setFixedSize(36, 32)
+        self.close_btn = QPushButton("X")
+        self.close_btn.setFixedSize(32, 28)
         self.close_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
                 border: 1px solid #5a5a5a;
-                font-size: 20px;
+                font-size: 14px;
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
