@@ -39,7 +39,7 @@ class DefaultPaths:
 
 def get_app_version():
     """Read version from version.txt file"""
-    version_file = DefaultPaths.BASE_DIR / "version.txt"
+    version_file = Path(DefaultPaths.BASE_DIR) / "version.txt"
     if version_file.exists():
         try:
             with open(version_file, 'r') as f:
@@ -48,7 +48,7 @@ def get_app_version():
                     return version
         except:
             pass
-    return "1.1.0"
+    return "1.0.2"
 
 class ClickableSlider(QSlider):
     def __init__(self, orientation=Qt.Horizontal, parent=None):
