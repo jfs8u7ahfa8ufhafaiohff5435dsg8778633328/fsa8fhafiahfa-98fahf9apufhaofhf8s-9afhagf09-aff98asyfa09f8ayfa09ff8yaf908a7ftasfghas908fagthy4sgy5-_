@@ -8,8 +8,9 @@ import webbrowser
 import subprocess
 import json
 import hashlib
+import wmi
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QComboBox, QTreeWidget, QTreeWidgetItem,
@@ -20,6 +21,137 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize, QSettings, QPoint, QByteArray, QMimeData, QRect
 from PySide6.QtGui import QFont, QIcon, QPalette, QColor, QAction, QFontDatabase, QDrag, QPixmap, QPainter, QBrush, QPen, QLinearGradient, QDesktopServices
+
+def get_hwid():
+    """Get unique hardware ID from system"""
+    try:
+        c = wmi.WMI()
+        # Get motherboard serial
+        for board in c.Win32_BaseBoard():
+            board_serial = board.SerialNumber.strip()
+        # Get CPU ID
+        for cpu in c.Win32_Processor():
+            cpu_id = cpu.ProcessorId.strip()
+        # Get BIOS serial
+        for bios in c.Win32_BIOS():
+            bios_serial = bios.SerialNumber.strip()
+        
+        # Combine and hash
+        hwid_string = f"{board_serial}{cpu_id}{bios_serial}"
+        return hashlib.sha256(hwid_string.encode()).hexdigest()
+    except:
+        # Fallback to volume serial
+        import win32api
+        drive = win32api.GetVolumeInformation("C:\\")
+        return hashlib.sha256(str(drive[1]).encode()).hexdigest()
+
+def verify_key(key, hwid):
+    """Verify if key is valid for this HWID and within 24 hours"""
+    try:
+        # Decode key
+        decoded = base64.b64decode(key).decode()
+        stored_hwid, expiry = decoded.split("|")
+        expiry_date = datetime.fromisoformat(expiry)
+        
+        # Check if HWID matches and key hasn't expired
+        return stored_hwid == hwid and expiry_date > datetime.now()
+    except:
+        return False
+
+def generate_key(hwid, hours=24):
+    """Generate a key valid for specified hours for this HWID"""
+    expiry = datetime.now() + timedelta(hours=hours)
+    key_string = f"{hwid}|{expiry.isoformat()}"
+    return base64.b64encode(key_string.encode()).decode()
+
+class KeyDialog(DraggableDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("DRCM - Authentication")
+        self.setFixedSize(450, 300)
+        self.setup_ui()
+        
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        title_bar = QWidget()
+        title_bar.setFixedHeight(35)
+        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(10, 5, 10, 5)
+        title_label = QLabel("DRCM - Authentication")
+        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+        close_btn = QPushButton("×")
+        close_btn.setFixedSize(32, 28)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2d2d2d;
+                border: 1px solid #5a5a5a;
+                font-size: 20px;
+                font-weight: bold;
+                color: #ffffff;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #ff4444;
+            }
+        """)
+        close_btn.clicked.connect(self.reject)
+        title_layout.addWidget(close_btn)
+        layout.addWidget(title_bar)
+        
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(20, 20, 20, 20)
+        
+        info_label = QLabel("This software requires authentication.\nPlease enter your access key.\n\nKey is valid for 24 hours after first use.")
+        info_label.setAlignment(Qt.AlignCenter)
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #e0e0e0; margin-bottom: 20px;")
+        content_layout.addWidget(info_label)
+        
+        self.key_input = QLineEdit()
+        self.key_input.setPlaceholderText("Enter access key...")
+        self.key_input.setEchoMode(QLineEdit.Password)
+        self.key_input.returnPressed.connect(self.check_key)
+        content_layout.addWidget(self.key_input)
+        
+        self.error_label = QLabel("")
+        self.error_label.setStyleSheet("color: #ff4444;")
+        self.error_label.setAlignment(Qt.AlignCenter)
+        content_layout.addWidget(self.error_label)
+        
+        button_layout = QHBoxLayout()
+        self.check_btn = QPushButton("Unlock")
+        self.check_btn.clicked.connect(self.check_key)
+        button_layout.addWidget(self.check_btn)
+        
+        content_layout.addLayout(button_layout)
+        
+        # HWID display for admin
+        hwid_label = QLabel(f"HWID: {get_hwid()[:16]}...")
+        hwid_label.setStyleSheet("color: #888888; font-size: 10px; margin-top: 20px;")
+        hwid_label.setAlignment(Qt.AlignCenter)
+        content_layout.addWidget(hwid_label)
+        
+        layout.addWidget(content)
+        
+    def check_key(self):
+        key = self.key_input.text()
+        hwid = get_hwid()
+        
+        if verify_key(key, hwid):
+            # Save the key
+            settings = QSettings("DRCM", "Settings")
+            settings.setValue("auth_key", key)
+            settings.setValue("auth_hwid", hwid)
+            settings.setValue("auth_time", datetime.now().isoformat())
+            self.accept()
+        else:
+            self.error_label.setText("Invalid or expired key!")
 
 class ClickableSlider(QSlider):
     def __init__(self, orientation=Qt.Horizontal, parent=None):
@@ -92,7 +224,6 @@ class IntegratedColorPicker(DraggableDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # Title bar with close button
         title_bar = QWidget()
         title_bar.setFixedHeight(35)
         title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
@@ -125,14 +256,12 @@ class IntegratedColorPicker(DraggableDialog):
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(20, 20, 20, 20)
         
-        # Color preview
         self.preview = QLabel()
         self.preview.setFixedSize(100, 100)
         self.preview.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 2px solid gray; border-radius: 5px;")
         self.preview.setAlignment(Qt.AlignCenter)
         content_layout.addWidget(self.preview, alignment=Qt.AlignCenter)
         
-        # RGB Sliders
         rgb_layout = QVBoxLayout()
         
         red_layout = QHBoxLayout()
@@ -232,81 +361,6 @@ class IntegratedColorPicker(DraggableDialog):
     def get_color(self):
         return self.selected_color.name()
 
-class KeyDialog(DraggableDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("DRCM - Authentication")
-        self.setFixedSize(400, 200)
-        self.setup_ui()
-        
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        title_bar = QWidget()
-        title_bar.setFixedHeight(35)
-        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
-        title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(10, 5, 10, 5)
-        title_label = QLabel("DRCM - Authentication")
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        close_btn = QPushButton("×")
-        close_btn.setFixedSize(32, 28)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                border: 1px solid #5a5a5a;
-                font-size: 20px;
-                font-weight: bold;
-                color: #ffffff;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #ff4444;
-            }
-        """)
-        close_btn.clicked.connect(self.reject)
-        title_layout.addWidget(close_btn)
-        layout.addWidget(title_bar)
-        
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(20, 20, 20, 20)
-        
-        title = QLabel("Enter Access Key")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 20px; color: #e0e0e0;")
-        content_layout.addWidget(title)
-        
-        self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText("Enter secret key...")
-        self.key_input.setEchoMode(QLineEdit.Password)
-        self.key_input.returnPressed.connect(self.check_key)
-        content_layout.addWidget(self.key_input)
-        
-        self.error_label = QLabel("")
-        self.error_label.setStyleSheet("color: #ff4444;")
-        self.error_label.setAlignment(Qt.AlignCenter)
-        content_layout.addWidget(self.error_label)
-        
-        button_layout = QHBoxLayout()
-        self.check_btn = QPushButton("Unlock")
-        self.check_btn.clicked.connect(self.check_key)
-        button_layout.addWidget(self.check_btn)
-        
-        content_layout.addLayout(button_layout)
-        layout.addWidget(content)
-        
-    def check_key(self):
-        key = self.key_input.text()
-        expected_key = hashlib.sha256("DRCM_SECRET_2026".encode()).hexdigest()
-        if hashlib.sha256(key.encode()).hexdigest() == expected_key:
-            self.accept()
-        else:
-            self.error_label.setText("Invalid key!")
-
 class CustomTitleBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -330,8 +384,9 @@ class CustomTitleBar(QWidget):
         layout.addStretch()
         
         # Minimize button
-        self.min_btn = QPushButton("—")
+        self.min_btn = QPushButton()
         self.min_btn.setFixedSize(36, 32)
+        self.min_btn.setText("—")
         self.min_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
@@ -340,6 +395,7 @@ class CustomTitleBar(QWidget):
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
+                font-family: "Segoe UI", "Arial";
             }
             QPushButton:hover {
                 background-color: #4a6fa5;
@@ -349,8 +405,9 @@ class CustomTitleBar(QWidget):
         layout.addWidget(self.min_btn)
         
         # Maximize/Restore button
-        self.max_btn = QPushButton("□")
+        self.max_btn = QPushButton()
         self.max_btn.setFixedSize(36, 32)
+        self.max_btn.setText("□")
         self.max_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
@@ -359,6 +416,7 @@ class CustomTitleBar(QWidget):
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
+                font-family: "Segoe UI", "Arial";
             }
             QPushButton:hover {
                 background-color: #ffaa44;
@@ -368,8 +426,9 @@ class CustomTitleBar(QWidget):
         layout.addWidget(self.max_btn)
         
         # Close button
-        self.close_btn = QPushButton("×")
+        self.close_btn = QPushButton()
         self.close_btn.setFixedSize(36, 32)
+        self.close_btn.setText("×")
         self.close_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
@@ -378,6 +437,7 @@ class CustomTitleBar(QWidget):
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
+                font-family: "Segoe UI", "Arial";
             }
             QPushButton:hover {
                 background-color: #ff4444;
@@ -923,11 +983,13 @@ class RobloxVersionManager(QMainWindow):
         
         # Check key on startup
         settings = QSettings("DRCM", "Settings")
-        if not settings.value("authenticated", False, type=bool):
+        hwid = get_hwid()
+        stored_key = settings.value("auth_key", "")
+        
+        if not stored_key or not verify_key(stored_key, hwid):
             key_dialog = KeyDialog(self)
             if key_dialog.exec() != QDialog.Accepted:
                 sys.exit(0)
-            settings.setValue("authenticated", True)
         
         self.setup_ui()
         self.load_settings()
