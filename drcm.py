@@ -22,6 +22,44 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize, QSettings, QPoint
 from PySide6.QtGui import QFont, QAction
 
+# ============== HELPER FUNCTIONS ==============
+def get_hwid():
+    """Get unique hardware ID from system"""
+    try:
+        import wmi
+        c = wmi.WMI()
+        board_serial = ""
+        cpu_id = ""
+        bios_serial = ""
+        
+        for board in c.Win32_BaseBoard():
+            board_serial = board.SerialNumber.strip()
+        for cpu in c.Win32_Processor():
+            cpu_id = cpu.ProcessorId.strip()
+        for bios in c.Win32_BIOS():
+            bios_serial = bios.SerialNumber.strip()
+        
+        hwid_string = f"{board_serial}{cpu_id}{bios_serial}"
+        return hashlib.sha256(hwid_string.encode()).hexdigest()
+    except:
+        try:
+            import win32api
+            drive = win32api.GetVolumeInformation("C:\\")
+            return hashlib.sha256(str(drive[1]).encode()).hexdigest()
+        except:
+            return hashlib.sha256(os.environ.get('COMPUTERNAME', '').encode()).hexdigest()
+
+def verify_key(key, hwid):
+    """Verify if key is valid for this HWID and within 24 hours"""
+    try:
+        decoded = base64.b64decode(key).decode()
+        stored_hwid, expiry = decoded.split("|")
+        expiry_date = datetime.fromisoformat(expiry)
+        return stored_hwid == hwid and expiry_date > datetime.now()
+    except:
+        return False
+
+# ============== CUSTOM WIDGETS ==============
 class ClickableSlider(QSlider):
     def __init__(self, orientation=Qt.Horizontal, parent=None):
         super().__init__(orientation, parent)
@@ -62,6 +100,24 @@ class ClickableSlider(QSlider):
             
             self.setValue(int(value))
         super().mousePressEvent(event)
+
+class DraggableDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.drag_pos = None
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.drag_pos = event.globalPosition().toPoint()
+            
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton and self.drag_pos is not None:
+            self.move(self.pos() + event.globalPosition().toPoint() - self.drag_pos)
+            self.drag_pos = event.globalPosition().toPoint()
+            
+    def mouseReleaseEvent(self, event):
+        self.drag_pos = None
 
 class CustomTitleBar(QWidget):
     def __init__(self, parent=None):
@@ -143,208 +199,155 @@ class CustomTitleBar(QWidget):
             self.parent.showMaximized()
             self.max_btn.setText("❐")
 
-class DownloadThread(QThread):
-    progress = Signal(str)
-    status = Signal(str, str)
-    download_complete = Signal(str, str)
-    browser_closed = Signal()
-    
-    def __init__(self, download_url, channel, version_id):
-        super().__init__()
-        self.download_url = download_url
-        self.channel = channel
-        self.version_id = version_id
-        self.browser_process = None
-        self.downloads_path = Path("C:/Users/mypcy/Downloads")
-        self.stop_monitoring = False
+# ============== DIALOGS ==============
+class IntegratedColorPicker(DraggableDialog):
+    def __init__(self, parent=None, initial_color="#4a6fa5"):
+        super().__init__(parent)
+        self.setWindowTitle("Choose Color")
+        self.setFixedSize(450, 400)
+        self.selected_color = QColor(initial_color)
+        self.setup_ui()
         
-    def run(self):
-        chrome_paths = [
-            "C:/Program Files/Google/Chrome/Application/chrome.exe",
-            "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-            "C:/Users/mypcy/AppData/Local/Google/Chrome/Application/chrome.exe"
-        ]
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         
-        for chrome_path in chrome_paths:
-            if Path(chrome_path).exists():
-                try:
-                    self.browser_process = subprocess.Popen([chrome_path, self.download_url])
-                    self.progress.emit(f"Opened in Chrome browser")
-                    break
-                except:
-                    pass
+        title_bar = QWidget()
+        title_bar.setFixedHeight(35)
+        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(10, 5, 10, 5)
+        title_label = QLabel("Choose Color")
+        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+        close_btn = QPushButton("X")
+        close_btn.setFixedSize(32, 28)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2d2d2d;
+                border: 1px solid #5a5a5a;
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #ff4444;
+            }
+        """)
+        close_btn.clicked.connect(self.reject)
+        title_layout.addWidget(close_btn)
+        layout.addWidget(title_bar)
         
-        if not self.browser_process:
-            webbrowser.open(self.download_url)
-            self.progress.emit(f"Opened in default browser")
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(20, 20, 20, 20)
         
-        self.monitor_downloads()
+        self.preview = QLabel()
+        self.preview.setFixedSize(100, 100)
+        self.preview.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 2px solid gray; border-radius: 5px;")
+        self.preview.setAlignment(Qt.AlignCenter)
+        content_layout.addWidget(self.preview, alignment=Qt.AlignCenter)
         
-    def monitor_downloads(self):
-        initial_files = set()
-        if self.downloads_path.exists():
-            for item in self.downloads_path.iterdir():
-                if item.is_file():
-                    initial_files.add(item.name)
+        rgb_layout = QVBoxLayout()
         
-        timeout = 300
-        start_time = time.time()
-        downloaded_file = None
-        file_stable = False
+        red_layout = QHBoxLayout()
+        red_layout.addWidget(QLabel("R:"))
+        self.red_slider = ClickableSlider(Qt.Horizontal)
+        self.red_slider.setRange(0, 255)
+        self.red_slider.setValue(self.selected_color.red())
+        self.red_slider.valueChanged.connect(self.update_from_sliders)
+        red_layout.addWidget(self.red_slider)
+        self.red_spin = QSpinBox()
+        self.red_spin.setRange(0, 255)
+        self.red_spin.setValue(self.selected_color.red())
+        self.red_spin.valueChanged.connect(self.red_slider.setValue)
+        red_layout.addWidget(self.red_spin)
+        rgb_layout.addLayout(red_layout)
         
-        while time.time() - start_time < timeout:
-            if self.stop_monitoring:
-                return
-            
-            if self.browser_process and self.browser_process.poll() is not None:
-                self.progress.emit("Browser closed before download completed")
-                self.status.emit("Download cancelled", "orange")
-                return
-            
-            if self.downloads_path.exists():
-                current_files = set()
-                for item in self.downloads_path.iterdir():
-                    if item.is_file():
-                        current_files.add(item.name)
+        green_layout = QHBoxLayout()
+        green_layout.addWidget(QLabel("G:"))
+        self.green_slider = ClickableSlider(Qt.Horizontal)
+        self.green_slider.setRange(0, 255)
+        self.green_slider.setValue(self.selected_color.green())
+        self.green_slider.valueChanged.connect(self.update_from_sliders)
+        green_layout.addWidget(self.green_slider)
+        self.green_spin = QSpinBox()
+        self.green_spin.setRange(0, 255)
+        self.green_spin.setValue(self.selected_color.green())
+        self.green_spin.valueChanged.connect(self.green_slider.setValue)
+        green_layout.addWidget(self.green_spin)
+        rgb_layout.addLayout(green_layout)
+        
+        blue_layout = QHBoxLayout()
+        blue_layout.addWidget(QLabel("B:"))
+        self.blue_slider = ClickableSlider(Qt.Horizontal)
+        self.blue_slider.setRange(0, 255)
+        self.blue_slider.setValue(self.selected_color.blue())
+        self.blue_slider.valueChanged.connect(self.update_from_sliders)
+        blue_layout.addWidget(self.blue_slider)
+        self.blue_spin = QSpinBox()
+        self.blue_spin.setRange(0, 255)
+        self.blue_spin.setValue(self.selected_color.blue())
+        self.blue_spin.valueChanged.connect(self.blue_slider.setValue)
+        blue_layout.addWidget(self.blue_spin)
+        rgb_layout.addLayout(blue_layout)
+        
+        content_layout.addLayout(rgb_layout)
+        
+        hex_layout = QHBoxLayout()
+        hex_layout.addWidget(QLabel("Hex:"))
+        self.hex_input = QLineEdit()
+        self.hex_input.setText(self.selected_color.name())
+        self.hex_input.textChanged.connect(self.update_from_hex)
+        hex_layout.addWidget(self.hex_input)
+        content_layout.addLayout(hex_layout)
+        
+        button_layout = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(ok_btn)
+        button_layout.addWidget(cancel_btn)
+        content_layout.addLayout(button_layout)
+        
+        layout.addWidget(content)
+        
+    def update_from_sliders(self):
+        r = self.red_slider.value()
+        g = self.green_slider.value()
+        b = self.blue_slider.value()
+        self.selected_color = QColor(r, g, b)
+        self.preview.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 2px solid gray; border-radius: 5px;")
+        self.hex_input.setText(self.selected_color.name())
+        self.red_spin.setValue(r)
+        self.green_spin.setValue(g)
+        self.blue_spin.setValue(b)
+        
+    def update_from_hex(self):
+        hex_text = self.hex_input.text()
+        if hex_text.startswith("#") and len(hex_text) == 7:
+            color = QColor(hex_text)
+            if color.isValid():
+                self.selected_color = color
+                self.red_slider.blockSignals(True)
+                self.green_slider.blockSignals(True)
+                self.blue_slider.blockSignals(True)
+                self.red_slider.setValue(color.red())
+                self.green_slider.setValue(color.green())
+                self.blue_slider.setValue(color.blue())
+                self.red_spin.setValue(color.red())
+                self.green_spin.setValue(color.green())
+                self.blue_spin.setValue(color.blue())
+                self.red_slider.blockSignals(False)
+                self.green_slider.blockSignals(False)
+                self.blue_slider.blockSignals(False)
+                self.preview.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 2px solid gray; border-radius: 5px;")
                 
-                new_files = current_files - initial_files
-                
-                for new_file in new_files:
-                    self.progress.emit(f"Detected new file: {new_file}")
-                    source_path = self.downloads_path / new_file
-                    last_size = -1
-                    stable_count = 0
-                    
-                    while stable_count < 3:
-                        if source_path.exists():
-                            current_size = source_path.stat().st_size
-                            if current_size == last_size:
-                                stable_count += 1
-                            else:
-                                stable_count = 0
-                                last_size = current_size
-                            time.sleep(1)
-                        else:
-                            break
-                        
-                        if self.browser_process and self.browser_process.poll() is not None:
-                            self.progress.emit("Browser closed during download")
-                            return
-                    
-                    if stable_count >= 3:
-                        file_stable = True
-                        downloaded_file = new_file
-                        break
-                
-                if file_stable and downloaded_file:
-                    break
-            
-            time.sleep(1)
-        
-        if file_stable and downloaded_file:
-            self.progress.emit("Download complete!")
-            
-            if self.browser_process:
-                try:
-                    self.browser_process.terminate()
-                    self.progress.emit("Closed Chrome browser")
-                    self.browser_closed.emit()
-                except:
-                    pass
-            
-            source_path = self.downloads_path / downloaded_file
-            self.download_complete.emit(str(source_path), f"{self.channel}-{self.version_id}")
-        else:
-            self.progress.emit("Download timed out")
-            self.status.emit("Download timed out", "red")
-
-class TextureApplyThread(QThread):
-    progress = Signal(str)
-    finished = Signal(int)
-    
-    def __init__(self, source_path, dest_path, clear_first=False):
-        super().__init__()
-        self.source_path = source_path
-        self.dest_path = dest_path
-        self.clear_first = clear_first
-        
-    def run(self):
-        try:
-            if self.clear_first and self.dest_path.exists():
-                for item in self.dest_path.iterdir():
-                    try:
-                        if item.is_dir():
-                            shutil.rmtree(item)
-                        else:
-                            item.unlink()
-                    except:
-                        pass
-                self.progress.emit("Cleared textures folder")
-            
-            self.dest_path.mkdir(parents=True, exist_ok=True)
-            
-            file_count = 0
-            for item in self.source_path.iterdir():
-                dest = self.dest_path / item.name
-                try:
-                    if item.is_dir():
-                        shutil.copytree(item, dest, dirs_exist_ok=True)
-                        file_count += sum(1 for _ in item.rglob('*') if _.is_file())
-                    else:
-                        shutil.copy2(item, dest)
-                        file_count += 1
-                except Exception as e:
-                    self.progress.emit(f"Error: {e}")
-            self.finished.emit(file_count)
-        except Exception as e:
-            self.progress.emit(f"Error: {e}")
-            self.finished.emit(0)
-
-class SoundManager:
-    def __init__(self):
-        self.click_sound = None
-        self.download_sound = None
-        self.complete_sound = None
-        self.error_sound = None
-        self.volume = 0.5
-        self.enabled = True
-        
-    def init_sounds(self):
-        try:
-            self.click_sound = QSoundEffect()
-            self.download_sound = QSoundEffect()
-            self.complete_sound = QSoundEffect()
-            self.error_sound = QSoundEffect()
-            self.set_volume(self.volume)
-        except:
-            self.enabled = False
-        
-    def set_volume(self, volume):
-        self.volume = volume / 100.0
-        if self.click_sound:
-            self.click_sound.setVolume(self.volume)
-        if self.download_sound:
-            self.download_sound.setVolume(self.volume)
-        if self.complete_sound:
-            self.complete_sound.setVolume(self.volume)
-        if self.error_sound:
-            self.error_sound.setVolume(self.volume)
-        
-    def play_click(self):
-        if self.enabled and self.click_sound:
-            self.click_sound.play()
-        
-    def play_download(self):
-        if self.enabled and self.download_sound:
-            self.download_sound.play()
-        
-    def play_complete(self):
-        if self.enabled and self.complete_sound:
-            self.complete_sound.play()
-        
-    def play_error(self):
-        if self.enabled and self.error_sound:
-            self.error_sound.play()
+    def get_color(self):
+        return self.selected_color.name()
 
 class SettingsDialog(DraggableDialog):
     def __init__(self, parent=None):
@@ -368,13 +371,13 @@ class SettingsDialog(DraggableDialog):
         title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
         title_layout.addWidget(title_label)
         title_layout.addStretch()
-        close_btn = QPushButton("×")
+        close_btn = QPushButton("X")
         close_btn.setFixedSize(32, 28)
         close_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
                 border: 1px solid #5a5a5a;
-                font-size: 20px;
+                font-size: 14px;
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
@@ -625,6 +628,213 @@ class SettingsDialog(DraggableDialog):
         self.parent.apply_theme()
         self.accept()
 
+# ============== THREADS ==============
+class DownloadThread(QThread):
+    progress = Signal(str)
+    status = Signal(str, str)
+    download_complete = Signal(str, str)
+    browser_closed = Signal()
+    
+    def __init__(self, download_url, channel, version_id):
+        super().__init__()
+        self.download_url = download_url
+        self.channel = channel
+        self.version_id = version_id
+        self.browser_process = None
+        self.downloads_path = Path("C:/Users/mypcy/Downloads")
+        self.stop_monitoring = False
+        
+    def run(self):
+        chrome_paths = [
+            "C:/Program Files/Google/Chrome/Application/chrome.exe",
+            "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+            "C:/Users/mypcy/AppData/Local/Google/Chrome/Application/chrome.exe"
+        ]
+        
+        for chrome_path in chrome_paths:
+            if Path(chrome_path).exists():
+                try:
+                    self.browser_process = subprocess.Popen([chrome_path, self.download_url])
+                    self.progress.emit("Opened in Chrome browser")
+                    break
+                except:
+                    pass
+        
+        if not self.browser_process:
+            webbrowser.open(self.download_url)
+            self.progress.emit("Opened in default browser")
+        
+        self.monitor_downloads()
+        
+    def monitor_downloads(self):
+        initial_files = set()
+        if self.downloads_path.exists():
+            for item in self.downloads_path.iterdir():
+                if item.is_file():
+                    initial_files.add(item.name)
+        
+        timeout = 300
+        start_time = time.time()
+        downloaded_file = None
+        file_stable = False
+        
+        while time.time() - start_time < timeout:
+            if self.stop_monitoring:
+                return
+            
+            if self.browser_process and self.browser_process.poll() is not None:
+                self.progress.emit("Browser closed before download completed")
+                self.status.emit("Download cancelled", "orange")
+                return
+            
+            if self.downloads_path.exists():
+                current_files = set()
+                for item in self.downloads_path.iterdir():
+                    if item.is_file():
+                        current_files.add(item.name)
+                
+                new_files = current_files - initial_files
+                
+                for new_file in new_files:
+                    self.progress.emit(f"Detected new file: {new_file}")
+                    source_path = self.downloads_path / new_file
+                    last_size = -1
+                    stable_count = 0
+                    
+                    while stable_count < 3:
+                        if source_path.exists():
+                            current_size = source_path.stat().st_size
+                            if current_size == last_size:
+                                stable_count += 1
+                            else:
+                                stable_count = 0
+                                last_size = current_size
+                            time.sleep(1)
+                        else:
+                            break
+                        
+                        if self.browser_process and self.browser_process.poll() is not None:
+                            self.progress.emit("Browser closed during download")
+                            return
+                    
+                    if stable_count >= 3:
+                        file_stable = True
+                        downloaded_file = new_file
+                        break
+                
+                if file_stable and downloaded_file:
+                    break
+            
+            time.sleep(1)
+        
+        if file_stable and downloaded_file:
+            self.progress.emit("Download complete!")
+            
+            if self.browser_process:
+                try:
+                    self.browser_process.terminate()
+                    self.progress.emit("Closed Chrome browser")
+                    self.browser_closed.emit()
+                except:
+                    pass
+            
+            source_path = self.downloads_path / downloaded_file
+            self.download_complete.emit(str(source_path), f"{self.channel}-{self.version_id}")
+        else:
+            self.progress.emit("Download timed out")
+            self.status.emit("Download timed out", "red")
+
+class TextureApplyThread(QThread):
+    progress = Signal(str)
+    finished = Signal(int)
+    
+    def __init__(self, source_path, dest_path, clear_first=False):
+        super().__init__()
+        self.source_path = source_path
+        self.dest_path = dest_path
+        self.clear_first = clear_first
+        
+    def run(self):
+        try:
+            if self.clear_first and self.dest_path.exists():
+                for item in self.dest_path.iterdir():
+                    try:
+                        if item.is_dir():
+                            shutil.rmtree(item)
+                        else:
+                            item.unlink()
+                    except:
+                        pass
+                self.progress.emit("Cleared textures folder")
+            
+            self.dest_path.mkdir(parents=True, exist_ok=True)
+            
+            file_count = 0
+            for item in self.source_path.iterdir():
+                dest = self.dest_path / item.name
+                try:
+                    if item.is_dir():
+                        shutil.copytree(item, dest, dirs_exist_ok=True)
+                        file_count += sum(1 for _ in item.rglob('*') if _.is_file())
+                    else:
+                        shutil.copy2(item, dest)
+                        file_count += 1
+                except Exception as e:
+                    self.progress.emit(f"Error: {e}")
+            self.finished.emit(file_count)
+        except Exception as e:
+            self.progress.emit(f"Error: {e}")
+            self.finished.emit(0)
+
+# ============== SOUND MANAGER ==============
+class SoundManager:
+    def __init__(self):
+        self.click_sound = None
+        self.download_sound = None
+        self.complete_sound = None
+        self.error_sound = None
+        self.volume = 0.5
+        self.enabled = True
+        
+    def init_sounds(self):
+        try:
+            from PySide6.QtMultimedia import QSoundEffect
+            self.click_sound = QSoundEffect()
+            self.download_sound = QSoundEffect()
+            self.complete_sound = QSoundEffect()
+            self.error_sound = QSoundEffect()
+            self.set_volume(self.volume)
+        except:
+            self.enabled = False
+        
+    def set_volume(self, volume):
+        self.volume = volume / 100.0
+        if self.click_sound:
+            self.click_sound.setVolume(self.volume)
+        if self.download_sound:
+            self.download_sound.setVolume(self.volume)
+        if self.complete_sound:
+            self.complete_sound.setVolume(self.volume)
+        if self.error_sound:
+            self.error_sound.setVolume(self.volume)
+        
+    def play_click(self):
+        if self.enabled and self.click_sound:
+            self.click_sound.play()
+        
+    def play_download(self):
+        if self.enabled and self.download_sound:
+            self.download_sound.play()
+        
+    def play_complete(self):
+        if self.enabled and self.complete_sound:
+            self.complete_sound.play()
+        
+    def play_error(self):
+        if self.enabled and self.error_sound:
+            self.error_sound.play()
+
+# ============== MAIN WINDOW ==============
 class RobloxVersionManager(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -660,22 +870,13 @@ class RobloxVersionManager(QMainWindow):
         self.auto_refresh_timer = QTimer()
         self.auto_refresh_timer.timeout.connect(self.auto_refresh_versions)
         
-        settings = QSettings("DRCM", "Settings")
-        hwid = get_hwid()
-        stored_key = settings.value("auth_key", "")
-        
-        if not stored_key or not verify_key(stored_key, hwid):
-            key_dialog = KeyDialog(self)
-            if key_dialog.exec() != QDialog.Accepted:
-                sys.exit(0)
-        
         self.setup_ui()
         self.load_settings()
         self.apply_theme()
         self.refresh_versions()
         self.refresh_current_version()
         
-        if settings.value("auto_refresh", True, type=bool):
+        if QSettings("DRCM", "Settings").value("auto_refresh", True, type=bool):
             self.auto_refresh_timer.start(5000)
         
         self.setAcceptDrops(True)
@@ -762,7 +963,6 @@ class RobloxVersionManager(QMainWindow):
         self.channel_combo = QComboBox()
         self.channel_combo.addItems(["LIVE", "LIVE-Client", "LIVE-WindowsPlayer", "LIVE-Studio"])
         self.channel_combo.setEditable(True)
-        self.channel_combo.setInsertPolicy(QComboBox.NoInsert)
         controls_layout.addWidget(self.channel_combo)
         
         controls_layout.addWidget(QLabel("Version:"))
@@ -794,12 +994,12 @@ class RobloxVersionManager(QMainWindow):
         versions_header.addStretch()
         
         self.refresh_btn = QPushButton("↻")
-        self.refresh_btn.setFixedSize(36, 32)
+        self.refresh_btn.setFixedSize(32, 28)
         self.refresh_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
                 border: 1px solid #5a5a5a;
-                font-size: 18px;
+                font-size: 14px;
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
@@ -901,8 +1101,6 @@ class RobloxVersionManager(QMainWindow):
         self.file_browser.itemDoubleClicked.connect(self.browse_file)
         self.file_browser.setDragEnabled(True)
         self.file_browser.setAcceptDrops(True)
-        self.file_browser.viewport().setAcceptDrops(True)
-        self.file_browser.setDragDropMode(QAbstractItemView.DragDrop)
         browser_layout.addWidget(self.file_browser)
         
         right_layout.addWidget(browser_frame)
@@ -1549,7 +1747,7 @@ class RobloxVersionManager(QMainWindow):
     def darken_color(self, color, factor):
         qcolor = QColor(color)
         return qcolor.darker(int(100 / factor)).name()
-        
+
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
