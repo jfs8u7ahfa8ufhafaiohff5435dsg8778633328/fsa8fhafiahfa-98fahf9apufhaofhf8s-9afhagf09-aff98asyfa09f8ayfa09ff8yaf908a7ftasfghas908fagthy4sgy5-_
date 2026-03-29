@@ -21,6 +21,22 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize, QSettings, QPoint
 from PySide6.QtGui import QFont, QAction, QColor
 
+# Get user's home directory and username
+USER_HOME = Path.home()
+USERNAME = os.environ.get('USERNAME') or os.environ.get('USER') or 'User'
+DOWNLOADS_DIR = USER_HOME / "Downloads"
+
+# Dynamic paths based on user's system
+class Paths:
+    BASE_DIR = DOWNLOADS_DIR / "Drcm"
+    VERSIONS_DIR = BASE_DIR / "RbxV"
+    DT_TEXTURES_DIR = BASE_DIR / "dt" / "dt"
+    NT_TEXTURES_DIR = BASE_DIR / "nt" / "nt"
+    CUSTOM_TEXTURES_DIR = BASE_DIR / "ct"
+    SETTINGS_DIR = BASE_DIR / "Settings"
+    SOUNDS_DIR = BASE_DIR / "Sounds"
+    BLOXSTRAP_PATH = Path(os.environ.get('LOCALAPPDATA', USER_HOME / 'AppData' / 'Local')) / "Bloxstrap" / "Versions"
+
 class ClickableSlider(QSlider):
     def __init__(self, orientation=Qt.Horizontal, parent=None):
         super().__init__(orientation, parent)
@@ -314,7 +330,7 @@ class SettingsDialog(DraggableDialog):
         super().__init__(parent)
         self.parent = parent
         self.setWindowTitle("DRCM Settings")
-        self.setMinimumSize(600, 650)
+        self.setMinimumSize(600, 700)
         self.setup_ui()
         self.load_settings()
         
@@ -359,6 +375,7 @@ class SettingsDialog(DraggableDialog):
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
         
+        # Color settings
         color_group = QGroupBox("Theme Colors")
         color_layout = QVBoxLayout()
         
@@ -398,6 +415,38 @@ class SettingsDialog(DraggableDialog):
         color_group.setLayout(color_layout)
         scroll_layout.addWidget(color_group)
         
+        # Credits section
+        credits_group = QGroupBox("About")
+        credits_layout = QVBoxLayout()
+        
+        credits_label = QLabel("DRCM - Roblox Version Manager")
+        credits_label.setAlignment(Qt.AlignCenter)
+        credits_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #4a6fa5;")
+        credits_layout.addWidget(credits_label)
+        
+        version_label = QLabel("Version 1.0.1")
+        version_label.setAlignment(Qt.AlignCenter)
+        version_label.setStyleSheet("color: #888888;")
+        credits_layout.addWidget(version_label)
+        
+        credits_layout.addSpacing(10)
+        
+        dev_label = QLabel("Created by: Dev_Z / ipad_halobuck")
+        dev_label.setAlignment(Qt.AlignCenter)
+        dev_label.setStyleSheet("color: #e0e0e0; font-size: 12px;")
+        credits_layout.addWidget(dev_label)
+        
+        credits_layout.addSpacing(5)
+        
+        thanks_label = QLabel("Special thanks to the Roblox community")
+        thanks_label.setAlignment(Qt.AlignCenter)
+        thanks_label.setStyleSheet("color: #888888; font-size: 11px;")
+        credits_layout.addWidget(thanks_label)
+        
+        credits_group.setLayout(credits_layout)
+        scroll_layout.addWidget(credits_group)
+        
+        # Sound settings
         sound_group = QGroupBox("Sound Settings")
         sound_layout = QVBoxLayout()
         
@@ -424,6 +473,7 @@ class SettingsDialog(DraggableDialog):
         sound_group.setLayout(sound_layout)
         scroll_layout.addWidget(sound_group)
         
+        # Window settings
         window_group = QGroupBox("Window Settings")
         window_layout = QVBoxLayout()
         
@@ -446,6 +496,7 @@ class SettingsDialog(DraggableDialog):
         window_group.setLayout(window_layout)
         scroll_layout.addWidget(window_group)
         
+        # Behavior settings
         behavior_group = QGroupBox("Behavior")
         behavior_layout = QVBoxLayout()
         
@@ -460,38 +511,49 @@ class SettingsDialog(DraggableDialog):
         behavior_group.setLayout(behavior_layout)
         scroll_layout.addWidget(behavior_group)
         
+        # Path settings (read-only to show user paths)
         path_group = QGroupBox("File Paths")
         path_layout = QVBoxLayout()
         
         rbxv_layout = QHBoxLayout()
         rbxv_layout.addWidget(QLabel("Roblox Versions:"))
-        self.rbxv_path = QLineEdit()
-        self.rbxv_path.setText(str(self.parent.versions_path))
-        rbxv_layout.addWidget(self.rbxv_path)
-        rbxv_browse = QPushButton("Browse")
-        rbxv_browse.clicked.connect(lambda: self.browse_path("rbxv"))
-        rbxv_layout.addWidget(rbxv_browse)
+        rbxv_path_label = QLabel(str(Paths.VERSIONS_DIR))
+        rbxv_path_label.setStyleSheet("color: #888888; font-family: monospace; font-size: 11px;")
+        rbxv_path_label.setWordWrap(True)
+        rbxv_layout.addWidget(rbxv_path_label)
         path_layout.addLayout(rbxv_layout)
         
-        bloxstrap_layout = QHBoxLayout()
-        bloxstrap_layout.addWidget(QLabel("Bloxstrap Path:"))
-        self.bloxstrap_path = QLineEdit()
-        self.bloxstrap_path.setText(str(self.parent.bloxstrap_path))
-        bloxstrap_layout.addWidget(self.bloxstrap_path)
-        bloxstrap_browse = QPushButton("Browse")
-        bloxstrap_browse.clicked.connect(lambda: self.browse_path("bloxstrap"))
-        bloxstrap_layout.addWidget(bloxstrap_browse)
-        path_layout.addLayout(bloxstrap_layout)
+        dt_layout = QHBoxLayout()
+        dt_layout.addWidget(QLabel("Dark Textures:"))
+        dt_path_label = QLabel(str(Paths.DT_TEXTURES_DIR))
+        dt_path_label.setStyleSheet("color: #888888; font-family: monospace; font-size: 11px;")
+        dt_path_label.setWordWrap(True)
+        dt_layout.addWidget(dt_path_label)
+        path_layout.addLayout(dt_layout)
+        
+        nt_layout = QHBoxLayout()
+        nt_layout.addWidget(QLabel("Normal Textures:"))
+        nt_path_label = QLabel(str(Paths.NT_TEXTURES_DIR))
+        nt_path_label.setStyleSheet("color: #888888; font-family: monospace; font-size: 11px;")
+        nt_path_label.setWordWrap(True)
+        nt_layout.addWidget(nt_path_label)
+        path_layout.addLayout(nt_layout)
         
         ct_layout = QHBoxLayout()
         ct_layout.addWidget(QLabel("Custom Textures:"))
-        self.ct_path = QLineEdit()
-        self.ct_path.setText(str(self.parent.custom_textures_path))
-        ct_layout.addWidget(self.ct_path)
-        ct_browse = QPushButton("Browse")
-        ct_browse.clicked.connect(lambda: self.browse_path("ct"))
-        ct_layout.addWidget(ct_browse)
+        ct_path_label = QLabel(str(Paths.CUSTOM_TEXTURES_DIR))
+        ct_path_label.setStyleSheet("color: #888888; font-family: monospace; font-size: 11px;")
+        ct_path_label.setWordWrap(True)
+        ct_layout.addWidget(ct_path_label)
         path_layout.addLayout(ct_layout)
+        
+        bloxstrap_layout = QHBoxLayout()
+        bloxstrap_layout.addWidget(QLabel("Bloxstrap Path:"))
+        bloxstrap_path_label = QLabel(str(Paths.BLOXSTRAP_PATH))
+        bloxstrap_path_label.setStyleSheet("color: #888888; font-family: monospace; font-size: 11px;")
+        bloxstrap_path_label.setWordWrap(True)
+        bloxstrap_layout.addWidget(bloxstrap_path_label)
+        path_layout.addLayout(bloxstrap_layout)
         
         path_group.setLayout(path_layout)
         scroll_layout.addWidget(path_group)
@@ -539,16 +601,6 @@ class SettingsDialog(DraggableDialog):
         self.parent.window_transparency = value / 100.0
         self.parent.setWindowOpacity(self.parent.window_transparency)
         
-    def browse_path(self, path_type):
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
-        if folder:
-            if path_type == "rbxv":
-                self.rbxv_path.setText(folder)
-            elif path_type == "bloxstrap":
-                self.bloxstrap_path.setText(folder)
-            elif path_type == "ct":
-                self.ct_path.setText(folder)
-                
     def load_settings(self):
         settings = QSettings("DRCM", "Settings")
         self.bg_preview.setStyleSheet(f"background-color: {settings.value('bg_color', '#1a1a2e')}; border: 1px solid gray;")
@@ -570,13 +622,7 @@ class SettingsDialog(DraggableDialog):
         settings.setValue("enable_sounds", self.enable_sounds.isChecked())
         settings.setValue("auto_refresh", self.auto_refresh.isChecked())
         settings.setValue("save_state", self.save_state.isChecked())
-        settings.setValue("rbxv_path", self.rbxv_path.text())
-        settings.setValue("bloxstrap_path", self.bloxstrap_path.text())
-        settings.setValue("ct_path", self.ct_path.text())
         
-        self.parent.versions_path = Path(self.rbxv_path.text())
-        self.parent.bloxstrap_path = Path(self.bloxstrap_path.text())
-        self.parent.custom_textures_path = Path(self.ct_path.text())
         self.parent.sound_manager.set_volume(self.volume_slider.value())
         self.parent.sound_manager.enabled = self.enable_sounds.isChecked()
         
@@ -600,14 +646,14 @@ class DownloadThread(QThread):
         self.channel = channel
         self.version_id = version_id
         self.browser_process = None
-        self.downloads_path = Path("C:/Users/mypcy/Downloads")
+        self.downloads_path = DOWNLOADS_DIR
         self.stop_monitoring = False
         
     def run(self):
         chrome_paths = [
             "C:/Program Files/Google/Chrome/Application/chrome.exe",
             "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-            "C:/Users/mypcy/AppData/Local/Google/Chrome/Application/chrome.exe"
+            str(USER_HOME / "AppData/Local/Google/Chrome/Application/chrome.exe")
         ]
         
         for chrome_path in chrome_paths:
@@ -799,14 +845,17 @@ class RobloxVersionManager(QMainWindow):
         self.setMinimumSize(1300, 850)
         self.setWindowFlags(Qt.FramelessWindowHint)
         
-        self.versions_path = Path("C:/Users/mypcy/Downloads/Drcm/RbxV")
-        self.bloxstrap_path = Path("C:/Users/mypcy/AppData/Local/Bloxstrap/Versions")
-        self.dt_textures_path = Path("C:/Users/mypcy/Downloads/Drcm/dt/dt")
-        self.nt_textures_path = Path("C:/Users/mypcy/Downloads/Drcm/nt/nt")
-        self.custom_textures_path = Path("C:/Users/mypcy/Downloads/Drcm/ct")
+        # Use dynamic paths
+        self.versions_path = Paths.VERSIONS_DIR
+        self.bloxstrap_path = Paths.BLOXSTRAP_PATH
+        self.dt_textures_path = Paths.DT_TEXTURES_DIR
+        self.nt_textures_path = Paths.NT_TEXTURES_DIR
+        self.custom_textures_path = Paths.CUSTOM_TEXTURES_DIR
         
+        # Create folders
         for path in [self.versions_path, self.dt_textures_path, 
-                     self.nt_textures_path, self.custom_textures_path]:
+                     self.nt_textures_path, self.custom_textures_path,
+                     Paths.SETTINGS_DIR, Paths.SOUNDS_DIR]:
             path.mkdir(parents=True, exist_ok=True)
         
         self.bg_color = "#1a1a2e"
@@ -1157,7 +1206,7 @@ class RobloxVersionManager(QMainWindow):
     def load_file_browser(self, path=None):
         self.file_browser.clear()
         if path is None:
-            path = self.bloxstrap_path if self.bloxstrap_path.exists() else Path.home()
+            path = self.bloxstrap_path if self.bloxstrap_path.exists() else USER_HOME
             
         current_path = QTreeWidgetItem(self.file_browser, ["..", "", ""])
         current_path.setData(0, Qt.UserRole, str(path.parent))
@@ -1204,7 +1253,7 @@ class RobloxVersionManager(QMainWindow):
             
     def import_version(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Import Roblox Version", 
-                                                   str(Path.home()), 
+                                                   str(DOWNLOADS_DIR), 
                                                    "Roblox Files (*.zip *.roblox *.rbx)")
         if file_path:
             dest = self.versions_path / Path(file_path).name
@@ -1216,7 +1265,7 @@ class RobloxVersionManager(QMainWindow):
             
     def import_custom_textures(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Import Custom Textures",
-                                                str(Path.home()),
+                                                str(DOWNLOADS_DIR),
                                                 "Image Files (*.png *.jpg *.jpeg *.dds)")
         if files:
             for file in files:
@@ -1546,16 +1595,6 @@ class RobloxVersionManager(QMainWindow):
         self.sound_manager.set_volume(volume)
         self.sound_manager.enabled = enable_sounds
         
-        new_rbxv = settings.value("rbxv_path")
-        if new_rbxv:
-            self.versions_path = Path(new_rbxv)
-        new_bloxstrap = settings.value("bloxstrap_path")
-        if new_bloxstrap:
-            self.bloxstrap_path = Path(new_bloxstrap)
-        new_ct = settings.value("ct_path")
-        if new_ct:
-            self.custom_textures_path = Path(new_ct)
-            
         self.setWindowOpacity(self.window_transparency)
         
     def apply_theme(self):
