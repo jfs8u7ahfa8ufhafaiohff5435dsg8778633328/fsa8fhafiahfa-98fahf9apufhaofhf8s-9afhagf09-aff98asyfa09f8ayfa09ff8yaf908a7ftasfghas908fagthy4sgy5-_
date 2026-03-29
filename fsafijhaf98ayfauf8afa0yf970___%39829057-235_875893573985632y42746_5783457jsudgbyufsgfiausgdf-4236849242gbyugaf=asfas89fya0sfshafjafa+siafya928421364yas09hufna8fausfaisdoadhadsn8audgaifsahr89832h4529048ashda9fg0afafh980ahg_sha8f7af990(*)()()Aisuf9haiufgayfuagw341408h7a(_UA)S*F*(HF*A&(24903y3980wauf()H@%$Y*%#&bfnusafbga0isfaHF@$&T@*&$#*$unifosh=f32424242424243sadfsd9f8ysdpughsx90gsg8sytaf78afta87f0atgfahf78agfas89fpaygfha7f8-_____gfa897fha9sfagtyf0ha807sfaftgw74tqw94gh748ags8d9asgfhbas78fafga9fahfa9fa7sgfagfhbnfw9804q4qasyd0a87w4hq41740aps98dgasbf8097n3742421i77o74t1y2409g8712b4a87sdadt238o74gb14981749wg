@@ -95,6 +95,7 @@ class IntegratedColorPicker(DraggableDialog):
         # Title bar with close button
         title_bar = QWidget()
         title_bar.setFixedHeight(35)
+        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(10, 5, 10, 5)
         title_label = QLabel("Choose Color")
@@ -102,16 +103,15 @@ class IntegratedColorPicker(DraggableDialog):
         title_layout.addWidget(title_label)
         title_layout.addStretch()
         close_btn = QPushButton("×")
-        close_btn.setFixedSize(28, 28)
+        close_btn.setFixedSize(32, 28)
         close_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
                 border: 1px solid #5a5a5a;
-                font-size: 18px;
+                font-size: 20px;
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
-                font-family: "Segoe UI", "Arial", "Microsoft Sans Serif";
             }
             QPushButton:hover {
                 background-color: #ff4444;
@@ -123,7 +123,7 @@ class IntegratedColorPicker(DraggableDialog):
         
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(10, 10, 10, 10)
+        content_layout.setContentsMargins(20, 20, 20, 20)
         
         # Color preview
         self.preview = QLabel()
@@ -245,6 +245,7 @@ class KeyDialog(DraggableDialog):
         
         title_bar = QWidget()
         title_bar.setFixedHeight(35)
+        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(10, 5, 10, 5)
         title_label = QLabel("DRCM - Authentication")
@@ -252,16 +253,15 @@ class KeyDialog(DraggableDialog):
         title_layout.addWidget(title_label)
         title_layout.addStretch()
         close_btn = QPushButton("×")
-        close_btn.setFixedSize(28, 28)
+        close_btn.setFixedSize(32, 28)
         close_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
                 border: 1px solid #5a5a5a;
-                font-size: 18px;
+                font-size: 20px;
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
-                font-family: "Segoe UI", "Arial", "Microsoft Sans Serif";
             }
             QPushButton:hover {
                 background-color: #ff4444;
@@ -317,45 +317,60 @@ class CustomTitleBar(QWidget):
     def setup_ui(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 0, 10, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
         
         self.title_label = QLabel("DRCM - Roblox Version Manager")
         self.title_label.setStyleSheet("""
-            font-size: 12px; 
+            font-size: 13px; 
             font-weight: bold;
             color: #e0e0e0;
-            padding: 4px;
         """)
         layout.addWidget(self.title_label)
         
         layout.addStretch()
         
-        self.min_btn = QPushButton("━")
-        self.min_btn.setFixedSize(32, 32)
+        # Minimize button
+        self.min_btn = QPushButton("—")
+        self.min_btn.setFixedSize(36, 32)
         self.min_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
                 border: 1px solid #5a5a5a;
-                font-size: 14px;
+                font-size: 16px;
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
-                font-family: "Segoe UI", "Arial", "Microsoft Sans Serif";
             }
             QPushButton:hover {
                 background-color: #4a6fa5;
-                border-color: #6a8fbf;
-            }
-            QPushButton:pressed {
-                background-color: #2d4a6e;
             }
         """)
         self.min_btn.clicked.connect(self.parent.showMinimized)
         layout.addWidget(self.min_btn)
         
-        self.max_btn = QPushButton("⿻")
-        self.max_btn.setFixedSize(32, 32)
+        # Maximize/Restore button
+        self.max_btn = QPushButton("□")
+        self.max_btn.setFixedSize(36, 32)
         self.max_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2d2d2d;
+                border: 1px solid #5a5a5a;
+                font-size: 18px;
+                font-weight: bold;
+                color: #ffffff;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #ffaa44;
+            }
+        """)
+        self.max_btn.clicked.connect(self.toggle_maximize)
+        layout.addWidget(self.max_btn)
+        
+        # Close button
+        self.close_btn = QPushButton("×")
+        self.close_btn.setFixedSize(36, 32)
+        self.close_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
                 border: 1px solid #5a5a5a;
@@ -363,37 +378,9 @@ class CustomTitleBar(QWidget):
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
-                font-family: "Segoe UI", "Arial", "Microsoft Sans Serif";
-            }
-            QPushButton:hover {
-                background-color: #ffaa44;
-                border-color: #ffcc66;
-            }
-            QPushButton:pressed {
-                background-color: #cc8800;
-            }
-        """)
-        self.max_btn.clicked.connect(self.toggle_maximize)
-        layout.addWidget(self.max_btn)
-        
-        self.close_btn = QPushButton("×")
-        self.close_btn.setFixedSize(32, 32)
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                border: 1px solid #5a5a5a;
-                font-size: 22px;
-                font-weight: bold;
-                color: #ffffff;
-                border-radius: 4px;
-                font-family: "Segoe UI", "Arial", "Microsoft Sans Serif";
             }
             QPushButton:hover {
                 background-color: #ff4444;
-                border-color: #ff6666;
-            }
-            QPushButton:pressed {
-                background-color: #cc0000;
             }
         """)
         self.close_btn.clicked.connect(self.parent.close)
@@ -402,7 +389,7 @@ class CustomTitleBar(QWidget):
     def toggle_maximize(self):
         if self.parent.isMaximized():
             self.parent.showNormal()
-            self.max_btn.setText("⿻")
+            self.max_btn.setText("□")
         else:
             self.parent.showMaximized()
             self.max_btn.setText("❐")
@@ -625,6 +612,7 @@ class SettingsDialog(DraggableDialog):
         
         title_bar = QWidget()
         title_bar.setFixedHeight(35)
+        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(10, 5, 10, 5)
         title_label = QLabel("Settings")
@@ -632,16 +620,15 @@ class SettingsDialog(DraggableDialog):
         title_layout.addWidget(title_label)
         title_layout.addStretch()
         close_btn = QPushButton("×")
-        close_btn.setFixedSize(28, 28)
+        close_btn.setFixedSize(32, 28)
         close_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
                 border: 1px solid #5a5a5a;
-                font-size: 18px;
+                font-size: 20px;
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
-                font-family: "Segoe UI", "Arial", "Microsoft Sans Serif";
             }
             QPushButton:hover {
                 background-color: #ff4444;
@@ -1015,7 +1002,7 @@ class RobloxVersionManager(QMainWindow):
         
         # Menu bar
         menu_bar = QHBoxLayout()
-        settings_btn = QPushButton("Settings")
+        settings_btn = QPushButton("⚙ Settings")
         settings_btn.clicked.connect(self.open_settings)
         menu_bar.addWidget(settings_btn)
         
@@ -1053,7 +1040,7 @@ class RobloxVersionManager(QMainWindow):
         self.version_input.setText("version-6776addb8fbc4d17")
         controls_layout.addWidget(self.version_input)
         
-        self.download_btn = QPushButton("Download")
+        self.download_btn = QPushButton("⬇ Download")
         self.download_btn.clicked.connect(self.download_version)
         controls_layout.addWidget(self.download_btn)
         controls_layout.addStretch()
@@ -1086,16 +1073,9 @@ class RobloxVersionManager(QMainWindow):
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
-                font-family: "Segoe UI", "Arial", "Microsoft Sans Serif";
-                margin-top: 2px;
-                margin-bottom: 2px;
             }
             QPushButton:hover {
                 background-color: #4a6fa5;
-                border-color: #6a8fbf;
-            }
-            QPushButton:pressed {
-                background-color: #2d4a6e;
             }
         """)
         self.refresh_btn.clicked.connect(self.refresh_versions_manual)
@@ -1115,15 +1095,15 @@ class RobloxVersionManager(QMainWindow):
         
         # Action buttons
         action_layout = QHBoxLayout()
-        self.change_btn = QPushButton("Activate Version")
+        self.change_btn = QPushButton("✓ Activate Version")
         self.change_btn.clicked.connect(self.change_version)
         action_layout.addWidget(self.change_btn)
         
-        self.delete_btn = QPushButton("Delete")
+        self.delete_btn = QPushButton("🗑 Delete")
         self.delete_btn.clicked.connect(self.delete_selected)
         action_layout.addWidget(self.delete_btn)
         
-        self.import_btn = QPushButton("Import Version")
+        self.import_btn = QPushButton("📁 Import Version")
         self.import_btn.clicked.connect(self.import_version)
         action_layout.addWidget(self.import_btn)
         
@@ -1163,19 +1143,19 @@ class RobloxVersionManager(QMainWindow):
         texture_title.setObjectName("card_title")
         texture_layout.addWidget(texture_title)
         
-        dark_btn = QPushButton("Apply Dark Textures")
+        dark_btn = QPushButton("🌙 Apply Dark Textures")
         dark_btn.clicked.connect(self.apply_dark_textures)
         texture_layout.addWidget(dark_btn)
         
-        normal_btn = QPushButton("Restore Normal Textures")
+        normal_btn = QPushButton("☀ Restore Normal Textures")
         normal_btn.clicked.connect(self.apply_normal_textures)
         texture_layout.addWidget(normal_btn)
         
-        custom_btn = QPushButton("Apply Custom Textures")
+        custom_btn = QPushButton("🎨 Apply Custom Textures")
         custom_btn.clicked.connect(self.apply_custom_textures)
         texture_layout.addWidget(custom_btn)
         
-        import_custom_btn = QPushButton("Import Custom Textures")
+        import_custom_btn = QPushButton("📥 Import Custom Textures")
         import_custom_btn.clicked.connect(self.import_custom_textures)
         texture_layout.addWidget(import_custom_btn)
         
