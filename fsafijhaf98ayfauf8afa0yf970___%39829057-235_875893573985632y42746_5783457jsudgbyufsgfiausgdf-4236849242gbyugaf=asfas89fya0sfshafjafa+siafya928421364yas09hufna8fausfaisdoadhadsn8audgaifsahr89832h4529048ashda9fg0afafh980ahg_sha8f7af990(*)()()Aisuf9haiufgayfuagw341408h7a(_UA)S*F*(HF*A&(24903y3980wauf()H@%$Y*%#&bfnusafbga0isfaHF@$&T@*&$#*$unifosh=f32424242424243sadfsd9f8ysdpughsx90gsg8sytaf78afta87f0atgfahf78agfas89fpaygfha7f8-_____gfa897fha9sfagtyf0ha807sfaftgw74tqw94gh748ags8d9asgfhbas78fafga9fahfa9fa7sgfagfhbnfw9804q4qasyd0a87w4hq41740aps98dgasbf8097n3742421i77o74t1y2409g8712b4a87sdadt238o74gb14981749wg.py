@@ -962,7 +962,7 @@ class RobloxVersionManager(QMainWindow):
                 items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
                 for item in items:
                     if item.is_dir():
-                        display_name = f"📁 {item.name}"
+                        display_name = f"[{item.name}]"
                         tree_item = QTreeWidgetItem(parent or self.versions_tree, [display_name, "Folder", "", ""])
                         add_items(item, tree_item)
                         if self.tree_state.get(item.name, False):
@@ -1002,7 +1002,7 @@ class RobloxVersionManager(QMainWindow):
         
         # Menu bar
         menu_bar = QHBoxLayout()
-        settings_btn = QPushButton("⚙ Settings")
+        settings_btn = QPushButton("Settings")
         settings_btn.clicked.connect(self.open_settings)
         menu_bar.addWidget(settings_btn)
         
@@ -1040,7 +1040,7 @@ class RobloxVersionManager(QMainWindow):
         self.version_input.setText("version-6776addb8fbc4d17")
         controls_layout.addWidget(self.version_input)
         
-        self.download_btn = QPushButton("⬇ Download")
+        self.download_btn = QPushButton("Download")
         self.download_btn.clicked.connect(self.download_version)
         controls_layout.addWidget(self.download_btn)
         controls_layout.addStretch()
@@ -1095,15 +1095,15 @@ class RobloxVersionManager(QMainWindow):
         
         # Action buttons
         action_layout = QHBoxLayout()
-        self.change_btn = QPushButton("✓ Activate Version")
+        self.change_btn = QPushButton("Activate Version")
         self.change_btn.clicked.connect(self.change_version)
         action_layout.addWidget(self.change_btn)
         
-        self.delete_btn = QPushButton("🗑 Delete")
+        self.delete_btn = QPushButton("Delete")
         self.delete_btn.clicked.connect(self.delete_selected)
         action_layout.addWidget(self.delete_btn)
         
-        self.import_btn = QPushButton("📁 Import Version")
+        self.import_btn = QPushButton("Import Version")
         self.import_btn.clicked.connect(self.import_version)
         action_layout.addWidget(self.import_btn)
         
@@ -1143,19 +1143,19 @@ class RobloxVersionManager(QMainWindow):
         texture_title.setObjectName("card_title")
         texture_layout.addWidget(texture_title)
         
-        dark_btn = QPushButton("🌙 Apply Dark Textures")
+        dark_btn = QPushButton("Apply Dark Textures")
         dark_btn.clicked.connect(self.apply_dark_textures)
         texture_layout.addWidget(dark_btn)
         
-        normal_btn = QPushButton("☀ Restore Normal Textures")
+        normal_btn = QPushButton("Restore Normal Textures")
         normal_btn.clicked.connect(self.apply_normal_textures)
         texture_layout.addWidget(normal_btn)
         
-        custom_btn = QPushButton("🎨 Apply Custom Textures")
+        custom_btn = QPushButton("Apply Custom Textures")
         custom_btn.clicked.connect(self.apply_custom_textures)
         texture_layout.addWidget(custom_btn)
         
-        import_custom_btn = QPushButton("📥 Import Custom Textures")
+        import_custom_btn = QPushButton("Import Custom Textures")
         import_custom_btn.clicked.connect(self.import_custom_textures)
         texture_layout.addWidget(import_custom_btn)
         
@@ -1250,8 +1250,8 @@ class RobloxVersionManager(QMainWindow):
     def save_tree_state(self, item):
         if item:
             item_name = item.text(0)
-            if item_name.startswith("📁 "):
-                item_name = item_name[2:]
+            if item_name.startswith("[") and item_name.endswith("]"):
+                item_name = item_name[1:-1]
             self.tree_state[item_name] = item.isExpanded()
             settings = QSettings("DRCM", "TreeState")
             settings.setValue("tree_state", json.dumps(self.tree_state))
@@ -1282,7 +1282,7 @@ class RobloxVersionManager(QMainWindow):
         
         for item in sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
             if item.is_dir():
-                tree_item = QTreeWidgetItem(self.file_browser, [f"📁 {item.name}", "", ""])
+                tree_item = QTreeWidgetItem(self.file_browser, [f"[{item.name}]", "", ""])
             else:
                 size_mb = item.stat().st_size / (1024 * 1024)
                 modified = datetime.fromtimestamp(item.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
@@ -1314,8 +1314,8 @@ class RobloxVersionManager(QMainWindow):
         items = self.versions_tree.selectedItems()
         if items:
             item_name = items[0].text(0)
-            if item_name.startswith("📁 "):
-                item_name = item_name[2:]
+            if item_name.startswith("[") and item_name.endswith("]"):
+                item_name = item_name[1:-1]
             item_path = self.versions_path / item_name
             QApplication.clipboard().setText(str(item_path))
             self.log(f"Copied path: {item_path}")
@@ -1378,8 +1378,8 @@ class RobloxVersionManager(QMainWindow):
         if reply == QMessageBox.Yes:
             for item in items:
                 item_name = item.text(0)
-                if item_name.startswith("📁 "):
-                    item_name = item_name[2:]
+                if item_name.startswith("[") and item_name.endswith("]"):
+                    item_name = item_name[1:-1]
                 item_path = self.versions_path / item_name
                 try:
                     if item_path.is_dir():
@@ -1397,8 +1397,8 @@ class RobloxVersionManager(QMainWindow):
         items = self.versions_tree.selectedItems()
         if items:
             item_name = items[0].text(0)
-            if item_name.startswith("📁 "):
-                item_name = item_name[2:]
+            if item_name.startswith("[") and item_name.endswith("]"):
+                item_name = item_name[1:-1]
             item_path = self.versions_path / item_name
             if item_path.exists():
                 try:
@@ -1442,7 +1442,7 @@ class RobloxVersionManager(QMainWindow):
                 items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
                 for item in items:
                     if item.is_dir():
-                        display_name = f"📁 {item.name}"
+                        display_name = f"[{item.name}]"
                         tree_item = QTreeWidgetItem(parent or self.versions_tree, [display_name, "Folder", "", ""])
                         add_items(item, tree_item)
                         if self.tree_state.get(item.name, False):
@@ -1543,8 +1543,8 @@ class RobloxVersionManager(QMainWindow):
             item = item.parent()
             
         item_name = item.text(0)
-        if item_name.startswith("📁 "):
-            item_name = item_name[2:]
+        if item_name.startswith("[") and item_name.endswith("]"):
+            item_name = item_name[1:-1]
             
         item_path = self.versions_path / item_name
         
