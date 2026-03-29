@@ -37,6 +37,19 @@ class DefaultPaths:
     SOUNDS_DIR = BASE_DIR / "Sounds"
     BLOXSTRAP_PATH = Path(os.environ.get('LOCALAPPDATA', USER_HOME / 'AppData' / 'Local')) / "Bloxstrap" / "Versions"
 
+def get_app_version():
+    """Read version from version.txt file"""
+    version_file = DefaultPaths.BASE_DIR / "version.txt"
+    if version_file.exists():
+        try:
+            with open(version_file, 'r') as f:
+                version = f.read().strip()
+                if version:
+                    return version
+        except:
+            pass
+    return "1.1.0"
+
 class ClickableSlider(QSlider):
     def __init__(self, orientation=Qt.Horizontal, parent=None):
         super().__init__(orientation, parent)
@@ -424,7 +437,7 @@ class SettingsDialog(DraggableDialog):
         credits_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #4a6fa5;")
         credits_layout.addWidget(credits_label)
         
-        version_label = QLabel("Version 1.0.1")
+        version_label = QLabel(f"Version {get_app_version()}")
         version_label.setAlignment(Qt.AlignCenter)
         version_label.setStyleSheet("color: #888888;")
         credits_layout.addWidget(version_label)
@@ -693,9 +706,6 @@ class SettingsDialog(DraggableDialog):
         self.parent.apply_theme()
         self.accept()
 
-# ... [Continue with DownloadThread, TextureApplyThread, SoundManager classes...]
-# (These remain the same as in the previous version)
-
 class DownloadThread(QThread):
     progress = Signal(str)
     status = Signal(str, str)
@@ -907,6 +917,9 @@ class RobloxVersionManager(QMainWindow):
         self.setMinimumSize(1300, 850)
         self.setWindowFlags(Qt.FramelessWindowHint)
         
+        # Load version from file
+        self.version = get_app_version()
+        
         # Load saved paths or use defaults
         settings = QSettings("DRCM", "Settings")
         self.versions_path = Path(settings.value('rbxv_path', str(DefaultPaths.VERSIONS_DIR)))
@@ -1011,7 +1024,7 @@ class RobloxVersionManager(QMainWindow):
         settings_btn.clicked.connect(self.open_settings)
         menu_bar.addWidget(settings_btn)
         
-        version_label = QLabel("Version 1.0.1")
+        version_label = QLabel(f"Version {self.version}")
         version_label.setStyleSheet("color: #888888;")
         menu_bar.addWidget(version_label)
         
