@@ -8,9 +8,8 @@ import webbrowser
 import subprocess
 import json
 import hashlib
-import base64
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QComboBox, QTreeWidget, QTreeWidgetItem,
@@ -22,44 +21,6 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize, QSettings, QPoint
 from PySide6.QtGui import QFont, QAction, QColor
 
-# ============== HELPER FUNCTIONS ==============
-def get_hwid():
-    """Get unique hardware ID from system"""
-    try:
-        import wmi
-        c = wmi.WMI()
-        board_serial = ""
-        cpu_id = ""
-        bios_serial = ""
-        
-        for board in c.Win32_BaseBoard():
-            board_serial = board.SerialNumber.strip()
-        for cpu in c.Win32_Processor():
-            cpu_id = cpu.ProcessorId.strip()
-        for bios in c.Win32_BIOS():
-            bios_serial = bios.SerialNumber.strip()
-        
-        hwid_string = f"{board_serial}{cpu_id}{bios_serial}"
-        return hashlib.sha256(hwid_string.encode()).hexdigest()
-    except:
-        try:
-            import win32api
-            drive = win32api.GetVolumeInformation("C:\\")
-            return hashlib.sha256(str(drive[1]).encode()).hexdigest()
-        except:
-            return hashlib.sha256(os.environ.get('COMPUTERNAME', '').encode()).hexdigest()
-
-def verify_key(key, hwid):
-    """Verify if key is valid for this HWID and within 24 hours"""
-    try:
-        decoded = base64.b64decode(key).decode()
-        stored_hwid, expiry = decoded.split("|")
-        expiry_date = datetime.fromisoformat(expiry)
-        return stored_hwid == hwid and expiry_date > datetime.now()
-    except:
-        return False
-
-# ============== CUSTOM WIDGETS ==============
 class ClickableSlider(QSlider):
     def __init__(self, orientation=Qt.Horizontal, parent=None):
         super().__init__(orientation, parent)
@@ -199,7 +160,6 @@ class CustomTitleBar(QWidget):
             self.parent.showMaximized()
             self.max_btn.setText("❐")
 
-# ============== DIALOGS ==============
 class IntegratedColorPicker(DraggableDialog):
     def __init__(self, parent=None, initial_color="#4a6fa5"):
         super().__init__(parent)
@@ -628,7 +588,6 @@ class SettingsDialog(DraggableDialog):
         self.parent.apply_theme()
         self.accept()
 
-# ============== THREADS ==============
 class DownloadThread(QThread):
     progress = Signal(str)
     status = Signal(str, str)
@@ -786,7 +745,6 @@ class TextureApplyThread(QThread):
             self.progress.emit(f"Error: {e}")
             self.finished.emit(0)
 
-# ============== SOUND MANAGER ==============
 class SoundManager:
     def __init__(self):
         self.click_sound = None
@@ -834,7 +792,6 @@ class SoundManager:
         if self.enabled and self.error_sound:
             self.error_sound.play()
 
-# ============== MAIN WINDOW ==============
 class RobloxVersionManager(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -941,6 +898,11 @@ class RobloxVersionManager(QMainWindow):
         settings_btn = QPushButton("Settings")
         settings_btn.clicked.connect(self.open_settings)
         menu_bar.addWidget(settings_btn)
+        
+        version_label = QLabel("Version 1.0.1")
+        version_label.setStyleSheet("color: #888888;")
+        menu_bar.addWidget(version_label)
+        
         menu_bar.addStretch()
         content_layout.addLayout(menu_bar)
         
