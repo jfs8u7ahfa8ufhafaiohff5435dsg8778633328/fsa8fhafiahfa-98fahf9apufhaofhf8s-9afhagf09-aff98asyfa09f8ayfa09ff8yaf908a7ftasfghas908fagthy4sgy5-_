@@ -8,7 +8,7 @@ import webbrowser
 import subprocess
 import json
 import hashlib
-import wmi
+import base64
 from pathlib import Path
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
@@ -21,39 +21,40 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize, QSettings, QPoint, QByteArray, QMimeData, QRect
 from PySide6.QtGui import QFont, QIcon, QPalette, QColor, QAction, QFontDatabase, QDrag, QPixmap, QPainter, QBrush, QPen, QLinearGradient, QDesktopServices
+from PySide6.QtMultimedia import QSoundEffect
 
 def get_hwid():
     """Get unique hardware ID from system"""
     try:
+        import wmi
         c = wmi.WMI()
-        # Get motherboard serial
+        board_serial = ""
+        cpu_id = ""
+        bios_serial = ""
+        
         for board in c.Win32_BaseBoard():
             board_serial = board.SerialNumber.strip()
-        # Get CPU ID
         for cpu in c.Win32_Processor():
             cpu_id = cpu.ProcessorId.strip()
-        # Get BIOS serial
         for bios in c.Win32_BIOS():
             bios_serial = bios.SerialNumber.strip()
         
-        # Combine and hash
         hwid_string = f"{board_serial}{cpu_id}{bios_serial}"
         return hashlib.sha256(hwid_string.encode()).hexdigest()
     except:
-        # Fallback to volume serial
-        import win32api
-        drive = win32api.GetVolumeInformation("C:\\")
-        return hashlib.sha256(str(drive[1]).encode()).hexdigest()
+        try:
+            import win32api
+            drive = win32api.GetVolumeInformation("C:\\")
+            return hashlib.sha256(str(drive[1]).encode()).hexdigest()
+        except:
+            return hashlib.sha256(os.environ.get('COMPUTERNAME', '').encode()).hexdigest()
 
 def verify_key(key, hwid):
     """Verify if key is valid for this HWID and within 24 hours"""
     try:
-        # Decode key
         decoded = base64.b64decode(key).decode()
         stored_hwid, expiry = decoded.split("|")
         expiry_date = datetime.fromisoformat(expiry)
-        
-        # Check if HWID matches and key hasn't expired
         return stored_hwid == hwid and expiry_date > datetime.now()
     except:
         return False
@@ -63,95 +64,6 @@ def generate_key(hwid, hours=24):
     expiry = datetime.now() + timedelta(hours=hours)
     key_string = f"{hwid}|{expiry.isoformat()}"
     return base64.b64encode(key_string.encode()).decode()
-
-class KeyDialog(DraggableDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("DRCM - Authentication")
-        self.setFixedSize(450, 300)
-        self.setup_ui()
-        
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        title_bar = QWidget()
-        title_bar.setFixedHeight(35)
-        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
-        title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(10, 5, 10, 5)
-        title_label = QLabel("DRCM - Authentication")
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        close_btn = QPushButton("×")
-        close_btn.setFixedSize(32, 28)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                border: 1px solid #5a5a5a;
-                font-size: 20px;
-                font-weight: bold;
-                color: #ffffff;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #ff4444;
-            }
-        """)
-        close_btn.clicked.connect(self.reject)
-        title_layout.addWidget(close_btn)
-        layout.addWidget(title_bar)
-        
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(20, 20, 20, 20)
-        
-        info_label = QLabel("This software requires authentication.\nPlease enter your access key.\n\nKey is valid for 24 hours after first use.")
-        info_label.setAlignment(Qt.AlignCenter)
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #e0e0e0; margin-bottom: 20px;")
-        content_layout.addWidget(info_label)
-        
-        self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText("Enter access key...")
-        self.key_input.setEchoMode(QLineEdit.Password)
-        self.key_input.returnPressed.connect(self.check_key)
-        content_layout.addWidget(self.key_input)
-        
-        self.error_label = QLabel("")
-        self.error_label.setStyleSheet("color: #ff4444;")
-        self.error_label.setAlignment(Qt.AlignCenter)
-        content_layout.addWidget(self.error_label)
-        
-        button_layout = QHBoxLayout()
-        self.check_btn = QPushButton("Unlock")
-        self.check_btn.clicked.connect(self.check_key)
-        button_layout.addWidget(self.check_btn)
-        
-        content_layout.addLayout(button_layout)
-        
-        # HWID display for admin
-        hwid_label = QLabel(f"HWID: {get_hwid()[:16]}...")
-        hwid_label.setStyleSheet("color: #888888; font-size: 10px; margin-top: 20px;")
-        hwid_label.setAlignment(Qt.AlignCenter)
-        content_layout.addWidget(hwid_label)
-        
-        layout.addWidget(content)
-        
-    def check_key(self):
-        key = self.key_input.text()
-        hwid = get_hwid()
-        
-        if verify_key(key, hwid):
-            # Save the key
-            settings = QSettings("DRCM", "Settings")
-            settings.setValue("auth_key", key)
-            settings.setValue("auth_hwid", hwid)
-            settings.setValue("auth_time", datetime.now().isoformat())
-            self.accept()
-        else:
-            self.error_label.setText("Invalid or expired key!")
 
 class ClickableSlider(QSlider):
     def __init__(self, orientation=Qt.Horizontal, parent=None):
@@ -211,6 +123,93 @@ class DraggableDialog(QDialog):
             
     def mouseReleaseEvent(self, event):
         self.drag_pos = None
+
+class KeyDialog(DraggableDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("DRCM - Authentication")
+        self.setFixedSize(450, 320)
+        self.setup_ui()
+        
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        title_bar = QWidget()
+        title_bar.setFixedHeight(35)
+        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(10, 5, 10, 5)
+        title_label = QLabel("DRCM - Authentication")
+        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+        close_btn = QPushButton("×")
+        close_btn.setFixedSize(32, 28)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2d2d2d;
+                border: 1px solid #5a5a5a;
+                font-size: 20px;
+                font-weight: bold;
+                color: #ffffff;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #ff4444;
+            }
+        """)
+        close_btn.clicked.connect(self.reject)
+        title_layout.addWidget(close_btn)
+        layout.addWidget(title_bar)
+        
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(20, 20, 20, 20)
+        
+        info_label = QLabel("This software requires authentication.\n\nKey is valid for 24 hours after first use.\n\nContact administrator for access key.")
+        info_label.setAlignment(Qt.AlignCenter)
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #e0e0e0; margin-bottom: 20px;")
+        content_layout.addWidget(info_label)
+        
+        self.key_input = QLineEdit()
+        self.key_input.setPlaceholderText("Enter access key...")
+        self.key_input.setEchoMode(QLineEdit.Password)
+        self.key_input.returnPressed.connect(self.check_key)
+        content_layout.addWidget(self.key_input)
+        
+        self.error_label = QLabel("")
+        self.error_label.setStyleSheet("color: #ff4444;")
+        self.error_label.setAlignment(Qt.AlignCenter)
+        content_layout.addWidget(self.error_label)
+        
+        button_layout = QHBoxLayout()
+        self.check_btn = QPushButton("Unlock")
+        self.check_btn.clicked.connect(self.check_key)
+        button_layout.addWidget(self.check_btn)
+        content_layout.addLayout(button_layout)
+        
+        hwid_short = get_hwid()[:16]
+        hwid_label = QLabel(f"HWID: {hwid_short}...")
+        hwid_label.setStyleSheet("color: #888888; font-size: 10px; margin-top: 20px;")
+        hwid_label.setAlignment(Qt.AlignCenter)
+        content_layout.addWidget(hwid_label)
+        
+        layout.addWidget(content)
+        
+    def check_key(self):
+        key = self.key_input.text()
+        hwid = get_hwid()
+        
+        if verify_key(key, hwid):
+            settings = QSettings("DRCM", "Settings")
+            settings.setValue("auth_key", key)
+            settings.setValue("auth_hwid", hwid)
+            settings.setValue("auth_time", datetime.now().isoformat())
+            self.accept()
+        else:
+            self.error_label.setText("Invalid or expired key!")
 
 class IntegratedColorPicker(DraggableDialog):
     def __init__(self, parent=None, initial_color="#4a6fa5"):
@@ -383,10 +382,8 @@ class CustomTitleBar(QWidget):
         
         layout.addStretch()
         
-        # Minimize button
-        self.min_btn = QPushButton()
+        self.min_btn = QPushButton("—")
         self.min_btn.setFixedSize(36, 32)
-        self.min_btn.setText("—")
         self.min_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
@@ -395,7 +392,6 @@ class CustomTitleBar(QWidget):
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
-                font-family: "Segoe UI", "Arial";
             }
             QPushButton:hover {
                 background-color: #4a6fa5;
@@ -404,10 +400,8 @@ class CustomTitleBar(QWidget):
         self.min_btn.clicked.connect(self.parent.showMinimized)
         layout.addWidget(self.min_btn)
         
-        # Maximize/Restore button
-        self.max_btn = QPushButton()
+        self.max_btn = QPushButton("□")
         self.max_btn.setFixedSize(36, 32)
-        self.max_btn.setText("□")
         self.max_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
@@ -416,7 +410,6 @@ class CustomTitleBar(QWidget):
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
-                font-family: "Segoe UI", "Arial";
             }
             QPushButton:hover {
                 background-color: #ffaa44;
@@ -425,10 +418,8 @@ class CustomTitleBar(QWidget):
         self.max_btn.clicked.connect(self.toggle_maximize)
         layout.addWidget(self.max_btn)
         
-        # Close button
-        self.close_btn = QPushButton()
+        self.close_btn = QPushButton("×")
         self.close_btn.setFixedSize(36, 32)
-        self.close_btn.setText("×")
         self.close_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2d2d2d;
@@ -437,7 +428,6 @@ class CustomTitleBar(QWidget):
                 font-weight: bold;
                 color: #ffffff;
                 border-radius: 4px;
-                font-family: "Segoe UI", "Arial";
             }
             QPushButton:hover {
                 background-color: #ff4444;
@@ -707,7 +697,6 @@ class SettingsDialog(DraggableDialog):
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
         
-        # Color settings
         color_group = QGroupBox("Theme Colors")
         color_layout = QVBoxLayout()
         
@@ -747,7 +736,6 @@ class SettingsDialog(DraggableDialog):
         color_group.setLayout(color_layout)
         scroll_layout.addWidget(color_group)
         
-        # Sound settings
         sound_group = QGroupBox("Sound Settings")
         sound_layout = QVBoxLayout()
         
@@ -774,7 +762,6 @@ class SettingsDialog(DraggableDialog):
         sound_group.setLayout(sound_layout)
         scroll_layout.addWidget(sound_group)
         
-        # Window settings
         window_group = QGroupBox("Window Settings")
         window_layout = QVBoxLayout()
         
@@ -797,7 +784,6 @@ class SettingsDialog(DraggableDialog):
         window_group.setLayout(window_layout)
         scroll_layout.addWidget(window_group)
         
-        # Behavior settings
         behavior_group = QGroupBox("Behavior")
         behavior_layout = QVBoxLayout()
         
@@ -812,7 +798,6 @@ class SettingsDialog(DraggableDialog):
         behavior_group.setLayout(behavior_layout)
         scroll_layout.addWidget(behavior_group)
         
-        # Path settings
         path_group = QGroupBox("File Paths")
         path_layout = QVBoxLayout()
         
@@ -948,25 +933,21 @@ class RobloxVersionManager(QMainWindow):
         self.setMinimumSize(1300, 850)
         self.setWindowFlags(Qt.FramelessWindowHint)
         
-        # Paths
         self.versions_path = Path("C:/Users/mypcy/Downloads/Drcm/RbxV")
         self.bloxstrap_path = Path("C:/Users/mypcy/AppData/Local/Bloxstrap/Versions")
         self.dt_textures_path = Path("C:/Users/mypcy/Downloads/Drcm/dt/dt")
         self.nt_textures_path = Path("C:/Users/mypcy/Downloads/Drcm/nt/nt")
         self.custom_textures_path = Path("C:/Users/mypcy/Downloads/Drcm/ct")
         
-        # Create folders
         for path in [self.versions_path, self.dt_textures_path, 
                      self.nt_textures_path, self.custom_textures_path]:
             path.mkdir(parents=True, exist_ok=True)
         
-        # Theme colors
         self.bg_color = "#1a1a2e"
         self.accent_color = "#4a6fa5"
         self.text_color = "#e0e0e0"
         self.window_transparency = 1.0
         
-        # Sound manager
         self.sound_manager = SoundManager()
         self.sound_manager.init_sounds()
         
@@ -977,11 +958,9 @@ class RobloxVersionManager(QMainWindow):
         self.last_refresh_time = 0
         self.refresh_in_progress = False
         
-        # Create auto-refresh timer
         self.auto_refresh_timer = QTimer()
         self.auto_refresh_timer.timeout.connect(self.auto_refresh_versions)
         
-        # Check key on startup
         settings = QSettings("DRCM", "Settings")
         hwid = get_hwid()
         stored_key = settings.value("auth_key", "")
@@ -997,11 +976,9 @@ class RobloxVersionManager(QMainWindow):
         self.refresh_versions()
         self.refresh_current_version()
         
-        # Start auto-refresh if enabled
         if settings.value("auto_refresh", True, type=bool):
             self.auto_refresh_timer.start(5000)
         
-        # Setup drag and drop
         self.setAcceptDrops(True)
         self.versions_tree.viewport().setAcceptDrops(True)
         self.versions_tree.setDragDropMode(QAbstractItemView.DragDrop)
@@ -1053,33 +1030,26 @@ class RobloxVersionManager(QMainWindow):
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Custom title bar
         self.title_bar = CustomTitleBar(self)
         main_layout.addWidget(self.title_bar)
         
-        # Main content
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(10, 10, 10, 10)
         
-        # Menu bar
         menu_bar = QHBoxLayout()
         settings_btn = QPushButton("Settings")
         settings_btn.clicked.connect(self.open_settings)
         menu_bar.addWidget(settings_btn)
-        
         menu_bar.addStretch()
         content_layout.addLayout(menu_bar)
         
-        # Main splitter
         main_splitter = QSplitter(Qt.Horizontal)
         
-        # Left panel - Version Manager
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(5, 5, 5, 5)
         
-        # Download section
         download_frame = QFrame()
         download_frame.setObjectName("card")
         download_layout = QVBoxLayout(download_frame)
@@ -1114,7 +1084,6 @@ class RobloxVersionManager(QMainWindow):
         
         left_layout.addWidget(download_frame)
         
-        # Versions tree
         versions_frame = QFrame()
         versions_frame.setObjectName("card")
         versions_layout = QVBoxLayout(versions_frame)
@@ -1155,7 +1124,6 @@ class RobloxVersionManager(QMainWindow):
         self.versions_tree.itemCollapsed.connect(self.save_tree_state)
         versions_layout.addWidget(self.versions_tree)
         
-        # Action buttons
         action_layout = QHBoxLayout()
         self.change_btn = QPushButton("Activate Version")
         self.change_btn.clicked.connect(self.change_version)
@@ -1175,12 +1143,10 @@ class RobloxVersionManager(QMainWindow):
         left_layout.addWidget(versions_frame)
         main_splitter.addWidget(left_panel)
         
-        # Right panel - Texture Manager
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(5, 5, 5, 5)
         
-        # Active version info
         active_frame = QFrame()
         active_frame.setObjectName("card")
         active_layout = QVBoxLayout(active_frame)
@@ -1196,7 +1162,6 @@ class RobloxVersionManager(QMainWindow):
         
         right_layout.addWidget(active_frame)
         
-        # Texture management
         texture_frame = QFrame()
         texture_frame.setObjectName("card")
         texture_layout = QVBoxLayout(texture_frame)
@@ -1223,7 +1188,6 @@ class RobloxVersionManager(QMainWindow):
         
         right_layout.addWidget(texture_frame)
         
-        # File browser
         browser_frame = QFrame()
         browser_frame.setObjectName("card")
         browser_layout = QVBoxLayout(browser_frame)
@@ -1248,7 +1212,6 @@ class RobloxVersionManager(QMainWindow):
         main_splitter.setSizes([700, 600])
         content_layout.addWidget(main_splitter)
         
-        # Log output
         self.log_output = QTextEdit()
         self.log_output.setObjectName("log_output")
         self.log_output.setReadOnly(True)
@@ -1257,7 +1220,6 @@ class RobloxVersionManager(QMainWindow):
         
         main_layout.addWidget(content)
         
-        # Status bar
         self.status_bar = self.statusBar()
         self.status_label = QLabel("Ready")
         self.status_bar.addWidget(self.status_label)
@@ -1267,7 +1229,6 @@ class RobloxVersionManager(QMainWindow):
         self.progress_bar.setVisible(False)
         self.status_bar.addPermanentWidget(self.progress_bar)
         
-        # Enable window dragging
         self.title_bar.mousePressEvent = self.title_bar_mouse_press
         self.title_bar.mouseMoveEvent = self.title_bar_mouse_move
         
