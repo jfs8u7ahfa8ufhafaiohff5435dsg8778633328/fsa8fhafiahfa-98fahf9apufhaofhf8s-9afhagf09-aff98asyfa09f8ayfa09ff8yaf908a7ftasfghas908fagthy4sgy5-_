@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+DRCM - Roblox Version Manager
+Created by: Dev_Z / ipad_halobuck
+"""
+
 import sys
 import os
 import shutil
@@ -7,7 +13,6 @@ import time
 import webbrowser
 import subprocess
 import json
-import hashlib
 from pathlib import Path
 from datetime import datetime
 from PySide6.QtWidgets import (
@@ -16,86 +21,52 @@ from PySide6.QtWidgets import (
     QTabWidget, QTextEdit, QProgressBar, QMessageBox, QFileDialog,
     QSplitter, QFrame, QMenu, QAbstractItemView, QDialog, QDialogButtonBox,
     QSlider, QCheckBox, QSpinBox, QGroupBox, QScrollArea,
-    QSizePolicy, QInputDialog, QStyle, QStyleOptionSlider
+    QStyle, QStyleOptionSlider, QGraphicsOpacityEffect
 )
-from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize, QSettings, QPoint
-from PySide6.QtGui import QFont, QAction, QColor
+from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSettings, QPoint, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QFont, QAction, QColor, QPalette
 
-# Get user's home directory
+# ============== PATH DETECTION ==============
 USER_HOME = Path.home()
-USERNAME = os.environ.get('USERNAME') or os.environ.get('USER') or 'User'
 DOWNLOADS_DIR = USER_HOME / "Downloads"
+LOCALAPPDATA = Path(os.environ.get('LOCALAPPDATA', USER_HOME / 'AppData' / 'Local'))
+APPDATA = Path(os.environ.get('APPDATA', USER_HOME / 'AppData' / 'Roaming'))
 
-# Default paths
-class DefaultPaths:
-    BASE_DIR = DOWNLOADS_DIR / "Drcm"
-    VERSIONS_DIR = BASE_DIR / "RbxV"
-    DT_TEXTURES_DIR = BASE_DIR / "dt" / "dt"
-    NT_TEXTURES_DIR = BASE_DIR / "nt" / "nt"
-    CUSTOM_TEXTURES_DIR = BASE_DIR / "ct"
-    SETTINGS_DIR = BASE_DIR / "Settings"
-    SOUNDS_DIR = BASE_DIR / "Sounds"
-    BLOXSTRAP_PATH = Path(os.environ.get('LOCALAPPDATA', USER_HOME / 'AppData' / 'Local')) / "Bloxstrap" / "Versions"
+# Supported Roblox clients
+SUPPORTED_CLIENTS = {
+    "Bloxstrap": LOCALAPPDATA / "Bloxstrap" / "Versions",
+    "Fishstrap": LOCALAPPDATA / "Fishstrap" / "Versions",
+    "RBXStrapp": LOCALAPPDATA / "RBXStrapp" / "Versions",
+    "Official Roblox": LOCALAPPDATA / "Roblox" / "Versions",
+}
 
-def get_app_version():
-    """Read version from version.txt file"""
-    version_file = Path(DefaultPaths.BASE_DIR) / "version.txt"
-    if version_file.exists():
-        try:
-            with open(version_file, 'r') as f:
-                version = f.read().strip()
-                if version:
-                    return version
-        except:
-            pass
-    return "1.0.2"
-
-class ClickableSlider(QSlider):
-    def __init__(self, orientation=Qt.Horizontal, parent=None):
-        super().__init__(orientation, parent)
-        self.setTracking(True)
-        
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            click_pos = event.globalPosition().toPoint()
-            widget_pos = self.mapFromGlobal(click_pos)
-            
-            opt = QStyleOptionSlider()
-            self.initStyleOption(opt)
-            groove_rect = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderGroove, self)
-            handle_rect = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self)
-            
-            if self.orientation() == Qt.Horizontal:
-                slider_length = groove_rect.width() - handle_rect.width()
-                slider_pos = widget_pos.x() - groove_rect.x() - handle_rect.width() / 2
-                if slider_pos < 0:
-                    slider_pos = 0
-                elif slider_pos > slider_length:
-                    slider_pos = slider_length
-                if slider_length > 0:
-                    value = self.minimum() + (slider_pos / slider_length) * (self.maximum() - self.minimum())
-                else:
-                    value = self.minimum()
-            else:
-                slider_length = groove_rect.height() - handle_rect.height()
-                slider_pos = widget_pos.y() - groove_rect.y() - handle_rect.height() / 2
-                if slider_pos < 0:
-                    slider_pos = 0
-                elif slider_pos > slider_length:
-                    slider_pos = slider_length
-                if slider_length > 0:
-                    value = self.minimum() + (slider_pos / slider_length) * (self.maximum() - self.minimum())
-                else:
-                    value = self.minimum()
-            
-            self.setValue(int(value))
-        super().mousePressEvent(event)
-
-class DraggableDialog(QDialog):
+class AnimatedDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.drag_pos = None
+        self.opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacity_effect)
+        
+    def showEvent(self, event):
+        self.opacity_effect.setOpacity(0)
+        self.animation = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.animation.setDuration(200)
+        self.animation.setStartValue(0)
+        self.animation.setEndValue(1)
+        self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.animation.start()
+        super().showEvent(event)
+        
+    def closeEvent(self, event):
+        self.animation = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.animation.setDuration(150)
+        self.animation.setStartValue(1)
+        self.animation.setEndValue(0)
+        self.animation.setEasingCurve(QEasingCurve.Type.InCubic)
+        self.animation.finished.connect(self.close)
+        self.animation.start()
+        event.ignore()
         
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -109,17 +80,130 @@ class DraggableDialog(QDialog):
     def mouseReleaseEvent(self, event):
         self.drag_pos = None
 
+class AnimatedMainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacity_effect)
+        
+    def showEvent(self, event):
+        self.opacity_effect.setOpacity(0)
+        self.animation = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.animation.setDuration(300)
+        self.animation.setStartValue(0)
+        self.animation.setEndValue(1)
+        self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.animation.start()
+        super().showEvent(event)
+
+class ClientSelectionDialog(AnimatedDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Roblox Client")
+        self.setFixedSize(400, 350)
+        self.selected_client = None
+        self.setup_ui()
+        
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        title = QLabel("Select Your Roblox Client")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #4a6fa5;")
+        layout.addWidget(title)
+        
+        subtitle = QLabel("DRCM can work with different Roblox clients")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet("color: #888888; margin-bottom: 20px;")
+        layout.addWidget(subtitle)
+        
+        # Client buttons
+        for client_name in SUPPORTED_CLIENTS.keys():
+            btn = QPushButton(client_name)
+            btn.clicked.connect(lambda checked, c=client_name: self.select_client(c))
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #2d2d2d;
+                    border: 1px solid #5a5a5a;
+                    padding: 12px;
+                    border-radius: 6px;
+                    font-size: 14px;
+                    margin: 5px;
+                }
+                QPushButton:hover {
+                    background-color: #3d3d3d;
+                    border-color: #4a6fa5;
+                }
+            """)
+            layout.addWidget(btn)
+        
+        # Custom path option
+        custom_btn = QPushButton("Custom Path (Manual)")
+        custom_btn.clicked.connect(self.custom_path)
+        custom_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2d2d2d;
+                border: 1px solid #5a5a5a;
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 14px;
+                margin: 5px;
+            }
+            QPushButton:hover {
+                background-color: #3d3d3d;
+                border-color: #ffaa44;
+            }
+        """)
+        layout.addWidget(custom_btn)
+        
+        layout.addStretch()
+        
+    def select_client(self, client):
+        self.selected_client = client
+        self.accept()
+        
+    def custom_path(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Roblox Versions Folder")
+        if folder:
+            self.selected_client = "Custom"
+            SUPPORTED_CLIENTS["Custom"] = Path(folder)
+            self.accept()
+
+class ClickableSlider(QSlider):
+    def __init__(self, orientation=Qt.Horizontal, parent=None):
+        super().__init__(orientation, parent)
+        self.setTracking(True)
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            click_pos = event.globalPosition().toPoint()
+            widget_pos = self.mapFromGlobal(click_pos)
+            opt = QStyleOptionSlider()
+            self.initStyleOption(opt)
+            groove_rect = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderGroove, self)
+            handle_rect = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self)
+            
+            if self.orientation() == Qt.Horizontal:
+                slider_length = groove_rect.width() - handle_rect.width()
+                slider_pos = widget_pos.x() - groove_rect.x() - handle_rect.width() / 2
+                slider_pos = max(0, min(slider_pos, slider_length))
+                if slider_length > 0:
+                    value = self.minimum() + (slider_pos / slider_length) * (self.maximum() - self.minimum())
+                    self.setValue(int(value))
+        super().mousePressEvent(event)
+
 class CustomTitleBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
-        self.setFixedHeight(32)
+        self.setFixedHeight(35)
         self.setup_ui()
         
     def setup_ui(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 0, 10, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(5)
         
         self.title_label = QLabel("DRCM - Roblox Version Manager")
         self.title_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #e0e0e0;")
@@ -127,699 +211,73 @@ class CustomTitleBar(QWidget):
         
         layout.addStretch()
         
-        self.min_btn = QPushButton("-")
-        self.min_btn.setFixedSize(32, 28)
-        self.min_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                border: 1px solid #5a5a5a;
-                font-size: 14px;
-                font-weight: bold;
-                color: #ffffff;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #4a6fa5;
-            }
-        """)
-        self.min_btn.clicked.connect(self.parent.showMinimized)
-        layout.addWidget(self.min_btn)
-        
-        self.max_btn = QPushButton("□")
-        self.max_btn.setFixedSize(32, 28)
-        self.max_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                border: 1px solid #5a5a5a;
-                font-size: 14px;
-                font-weight: bold;
-                color: #ffffff;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #ffaa44;
-            }
-        """)
-        self.max_btn.clicked.connect(self.toggle_maximize)
-        layout.addWidget(self.max_btn)
-        
-        self.close_btn = QPushButton("X")
-        self.close_btn.setFixedSize(32, 28)
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                border: 1px solid #5a5a5a;
-                font-size: 14px;
-                font-weight: bold;
-                color: #ffffff;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #ff4444;
-            }
-        """)
-        self.close_btn.clicked.connect(self.parent.close)
-        layout.addWidget(self.close_btn)
-        
+        for text, color, slot in [("-", "#4a6fa5", self.parent.showMinimized),
+                                   ("□", "#ffaa44", self.toggle_maximize),
+                                   ("×", "#ff4444", self.parent.close)]:
+            btn = QPushButton(text)
+            btn.setFixedSize(32, 28)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: #2d2d2d;
+                    border: 1px solid #5a5a5a;
+                    font-size: 14px;
+                    font-weight: bold;
+                    color: #ffffff;
+                    border-radius: 4px;
+                }}
+                QPushButton:hover {{
+                    background-color: {color};
+                }}
+            """)
+            btn.clicked.connect(slot)
+            layout.addWidget(btn)
+            
     def toggle_maximize(self):
         if self.parent.isMaximized():
             self.parent.showNormal()
-            self.max_btn.setText("□")
         else:
             self.parent.showMaximized()
-            self.max_btn.setText("❐")
-
-class IntegratedColorPicker(DraggableDialog):
-    def __init__(self, parent=None, initial_color="#4a6fa5"):
-        super().__init__(parent)
-        self.setWindowTitle("Choose Color")
-        self.setFixedSize(450, 400)
-        self.selected_color = QColor(initial_color)
-        self.setup_ui()
-        
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        title_bar = QWidget()
-        title_bar.setFixedHeight(35)
-        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
-        title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(10, 5, 10, 5)
-        title_label = QLabel("Choose Color")
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        close_btn = QPushButton("X")
-        close_btn.setFixedSize(32, 28)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                border: 1px solid #5a5a5a;
-                font-size: 14px;
-                font-weight: bold;
-                color: #ffffff;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #ff4444;
-            }
-        """)
-        close_btn.clicked.connect(self.reject)
-        title_layout.addWidget(close_btn)
-        layout.addWidget(title_bar)
-        
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(20, 20, 20, 20)
-        
-        self.preview = QLabel()
-        self.preview.setFixedSize(100, 100)
-        self.preview.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 2px solid gray; border-radius: 5px;")
-        self.preview.setAlignment(Qt.AlignCenter)
-        content_layout.addWidget(self.preview, alignment=Qt.AlignCenter)
-        
-        rgb_layout = QVBoxLayout()
-        
-        red_layout = QHBoxLayout()
-        red_layout.addWidget(QLabel("R:"))
-        self.red_slider = ClickableSlider(Qt.Horizontal)
-        self.red_slider.setRange(0, 255)
-        self.red_slider.setValue(self.selected_color.red())
-        self.red_slider.valueChanged.connect(self.update_from_sliders)
-        red_layout.addWidget(self.red_slider)
-        self.red_spin = QSpinBox()
-        self.red_spin.setRange(0, 255)
-        self.red_spin.setValue(self.selected_color.red())
-        self.red_spin.valueChanged.connect(self.red_slider.setValue)
-        red_layout.addWidget(self.red_spin)
-        rgb_layout.addLayout(red_layout)
-        
-        green_layout = QHBoxLayout()
-        green_layout.addWidget(QLabel("G:"))
-        self.green_slider = ClickableSlider(Qt.Horizontal)
-        self.green_slider.setRange(0, 255)
-        self.green_slider.setValue(self.selected_color.green())
-        self.green_slider.valueChanged.connect(self.update_from_sliders)
-        green_layout.addWidget(self.green_slider)
-        self.green_spin = QSpinBox()
-        self.green_spin.setRange(0, 255)
-        self.green_spin.setValue(self.selected_color.green())
-        self.green_spin.valueChanged.connect(self.green_slider.setValue)
-        green_layout.addWidget(self.green_spin)
-        rgb_layout.addLayout(green_layout)
-        
-        blue_layout = QHBoxLayout()
-        blue_layout.addWidget(QLabel("B:"))
-        self.blue_slider = ClickableSlider(Qt.Horizontal)
-        self.blue_slider.setRange(0, 255)
-        self.blue_slider.setValue(self.selected_color.blue())
-        self.blue_slider.valueChanged.connect(self.update_from_sliders)
-        blue_layout.addWidget(self.blue_slider)
-        self.blue_spin = QSpinBox()
-        self.blue_spin.setRange(0, 255)
-        self.blue_spin.setValue(self.selected_color.blue())
-        self.blue_spin.valueChanged.connect(self.blue_slider.setValue)
-        blue_layout.addWidget(self.blue_spin)
-        rgb_layout.addLayout(blue_layout)
-        
-        content_layout.addLayout(rgb_layout)
-        
-        hex_layout = QHBoxLayout()
-        hex_layout.addWidget(QLabel("Hex:"))
-        self.hex_input = QLineEdit()
-        self.hex_input.setText(self.selected_color.name())
-        self.hex_input.textChanged.connect(self.update_from_hex)
-        hex_layout.addWidget(self.hex_input)
-        content_layout.addLayout(hex_layout)
-        
-        button_layout = QHBoxLayout()
-        ok_btn = QPushButton("OK")
-        ok_btn.clicked.connect(self.accept)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(ok_btn)
-        button_layout.addWidget(cancel_btn)
-        content_layout.addLayout(button_layout)
-        
-        layout.addWidget(content)
-        
-    def update_from_sliders(self):
-        r = self.red_slider.value()
-        g = self.green_slider.value()
-        b = self.blue_slider.value()
-        self.selected_color = QColor(r, g, b)
-        self.preview.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 2px solid gray; border-radius: 5px;")
-        self.hex_input.setText(self.selected_color.name())
-        self.red_spin.setValue(r)
-        self.green_spin.setValue(g)
-        self.blue_spin.setValue(b)
-        
-    def update_from_hex(self):
-        hex_text = self.hex_input.text()
-        if hex_text.startswith("#") and len(hex_text) == 7:
-            color = QColor(hex_text)
-            if color.isValid():
-                self.selected_color = color
-                self.red_slider.blockSignals(True)
-                self.green_slider.blockSignals(True)
-                self.blue_slider.blockSignals(True)
-                self.red_slider.setValue(color.red())
-                self.green_slider.setValue(color.green())
-                self.blue_slider.setValue(color.blue())
-                self.red_spin.setValue(color.red())
-                self.green_spin.setValue(color.green())
-                self.blue_spin.setValue(color.blue())
-                self.red_slider.blockSignals(False)
-                self.green_slider.blockSignals(False)
-                self.blue_slider.blockSignals(False)
-                self.preview.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 2px solid gray; border-radius: 5px;")
-                
-    def get_color(self):
-        return self.selected_color.name()
-
-class SettingsDialog(DraggableDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.parent = parent
-        self.setWindowTitle("DRCM Settings")
-        self.setMinimumSize(650, 750)
-        self.setup_ui()
-        self.load_settings()
-        
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        title_bar = QWidget()
-        title_bar.setFixedHeight(35)
-        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
-        title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(10, 5, 10, 5)
-        title_label = QLabel("Settings")
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        close_btn = QPushButton("X")
-        close_btn.setFixedSize(32, 28)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                border: 1px solid #5a5a5a;
-                font-size: 14px;
-                font-weight: bold;
-                color: #ffffff;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #ff4444;
-            }
-        """)
-        close_btn.clicked.connect(self.reject)
-        title_layout.addWidget(close_btn)
-        layout.addWidget(title_bar)
-        
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(10, 10, 10, 10)
-        
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll_widget = QWidget()
-        scroll_layout = QVBoxLayout(scroll_widget)
-        
-        # Color settings
-        color_group = QGroupBox("Theme Colors")
-        color_layout = QVBoxLayout()
-        
-        bg_layout = QHBoxLayout()
-        bg_layout.addWidget(QLabel("Background:"))
-        self.bg_color_btn = QPushButton("Choose Color")
-        self.bg_color_btn.clicked.connect(lambda: self.choose_color("bg"))
-        bg_layout.addWidget(self.bg_color_btn)
-        self.bg_preview = QLabel()
-        self.bg_preview.setFixedSize(50, 25)
-        bg_layout.addWidget(self.bg_preview)
-        bg_layout.addStretch()
-        color_layout.addLayout(bg_layout)
-        
-        accent_layout = QHBoxLayout()
-        accent_layout.addWidget(QLabel("Accent:"))
-        self.accent_color_btn = QPushButton("Choose Color")
-        self.accent_color_btn.clicked.connect(lambda: self.choose_color("accent"))
-        accent_layout.addWidget(self.accent_color_btn)
-        self.accent_preview = QLabel()
-        self.accent_preview.setFixedSize(50, 25)
-        accent_layout.addWidget(self.accent_preview)
-        accent_layout.addStretch()
-        color_layout.addLayout(accent_layout)
-        
-        text_layout = QHBoxLayout()
-        text_layout.addWidget(QLabel("Text:"))
-        self.text_color_btn = QPushButton("Choose Color")
-        self.text_color_btn.clicked.connect(lambda: self.choose_color("text"))
-        text_layout.addWidget(self.text_color_btn)
-        self.text_preview = QLabel()
-        self.text_preview.setFixedSize(50, 25)
-        text_layout.addWidget(self.text_preview)
-        text_layout.addStretch()
-        color_layout.addLayout(text_layout)
-        
-        color_group.setLayout(color_layout)
-        scroll_layout.addWidget(color_group)
-        
-        # Credits section
-        credits_group = QGroupBox("About")
-        credits_layout = QVBoxLayout()
-        
-        credits_label = QLabel("DRCM - Roblox Version Manager")
-        credits_label.setAlignment(Qt.AlignCenter)
-        credits_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #4a6fa5;")
-        credits_layout.addWidget(credits_label)
-        
-        version_label = QLabel(f"Version {get_app_version()}")
-        version_label.setAlignment(Qt.AlignCenter)
-        version_label.setStyleSheet("color: #888888;")
-        credits_layout.addWidget(version_label)
-        
-        credits_layout.addSpacing(10)
-        
-        dev_label = QLabel("Created by: Dev_Z / ipad_halobuck")
-        dev_label.setAlignment(Qt.AlignCenter)
-        dev_label.setStyleSheet("color: #e0e0e0; font-size: 12px;")
-        credits_layout.addWidget(dev_label)
-        
-        credits_layout.addSpacing(5)
-        
-        thanks_label = QLabel("Special thanks to the Roblox community")
-        thanks_label.setAlignment(Qt.AlignCenter)
-        thanks_label.setStyleSheet("color: #888888; font-size: 11px;")
-        credits_layout.addWidget(thanks_label)
-        
-        credits_group.setLayout(credits_layout)
-        scroll_layout.addWidget(credits_group)
-        
-        # Sound settings
-        sound_group = QGroupBox("Sound Settings")
-        sound_layout = QVBoxLayout()
-        
-        volume_layout = QHBoxLayout()
-        volume_layout.addWidget(QLabel("Volume:"))
-        self.volume_slider = ClickableSlider(Qt.Horizontal)
-        self.volume_slider.setRange(0, 100)
-        self.volume_slider.setValue(50)
-        self.volume_slider.valueChanged.connect(self.update_volume_preview)
-        volume_layout.addWidget(self.volume_slider)
-        
-        self.volume_spin = QSpinBox()
-        self.volume_spin.setRange(0, 100)
-        self.volume_spin.setSuffix("%")
-        self.volume_spin.valueChanged.connect(self.volume_slider.setValue)
-        self.volume_slider.valueChanged.connect(self.volume_spin.setValue)
-        volume_layout.addWidget(self.volume_spin)
-        sound_layout.addLayout(volume_layout)
-        
-        self.enable_sounds = QCheckBox("Enable UI Sounds")
-        self.enable_sounds.setChecked(True)
-        sound_layout.addWidget(self.enable_sounds)
-        
-        sound_group.setLayout(sound_layout)
-        scroll_layout.addWidget(sound_group)
-        
-        # Window settings
-        window_group = QGroupBox("Window Settings")
-        window_layout = QVBoxLayout()
-        
-        transparent_layout = QHBoxLayout()
-        transparent_layout.addWidget(QLabel("Window Transparency:"))
-        self.transparency_slider = ClickableSlider(Qt.Horizontal)
-        self.transparency_slider.setRange(15, 100)
-        self.transparency_slider.setValue(100)
-        self.transparency_slider.valueChanged.connect(self.update_transparency_preview)
-        transparent_layout.addWidget(self.transparency_slider)
-        
-        self.transparency_spin = QSpinBox()
-        self.transparency_spin.setRange(15, 100)
-        self.transparency_spin.setSuffix("%")
-        self.transparency_spin.valueChanged.connect(self.transparency_slider.setValue)
-        self.transparency_slider.valueChanged.connect(self.transparency_spin.setValue)
-        transparent_layout.addWidget(self.transparency_spin)
-        
-        window_layout.addLayout(transparent_layout)
-        window_group.setLayout(window_layout)
-        scroll_layout.addWidget(window_group)
-        
-        # Behavior settings
-        behavior_group = QGroupBox("Behavior")
-        behavior_layout = QVBoxLayout()
-        
-        self.auto_refresh = QCheckBox("Auto-refresh versions list (5 seconds)")
-        self.auto_refresh.setChecked(True)
-        behavior_layout.addWidget(self.auto_refresh)
-        
-        self.save_state = QCheckBox("Save tree expansion state")
-        self.save_state.setChecked(True)
-        behavior_layout.addWidget(self.save_state)
-        
-        behavior_group.setLayout(behavior_layout)
-        scroll_layout.addWidget(behavior_group)
-        
-        # Path settings with editable fields
-        path_group = QGroupBox("File Paths (Click Browse to change)")
-        path_layout = QVBoxLayout()
-        
-        # Roblox Versions path
-        rbxv_layout = QHBoxLayout()
-        rbxv_layout.addWidget(QLabel("Roblox Versions:"))
-        self.rbxv_path = QLineEdit()
-        self.rbxv_path.setReadOnly(False)
-        self.rbxv_path.setStyleSheet("background-color: #2d2d2d; color: #e0e0e0; padding: 4px;")
-        rbxv_layout.addWidget(self.rbxv_path)
-        rbxv_browse = QPushButton("Browse")
-        rbxv_browse.clicked.connect(lambda: self.browse_path("rbxv"))
-        rbxv_layout.addWidget(rbxv_browse)
-        path_layout.addLayout(rbxv_layout)
-        
-        # Dark Textures path
-        dt_layout = QHBoxLayout()
-        dt_layout.addWidget(QLabel("Dark Textures:"))
-        self.dt_path = QLineEdit()
-        self.dt_path.setReadOnly(False)
-        self.dt_path.setStyleSheet("background-color: #2d2d2d; color: #e0e0e0; padding: 4px;")
-        dt_layout.addWidget(self.dt_path)
-        dt_browse = QPushButton("Browse")
-        dt_browse.clicked.connect(lambda: self.browse_path("dt"))
-        dt_layout.addWidget(dt_browse)
-        path_layout.addLayout(dt_layout)
-        
-        # Normal Textures path
-        nt_layout = QHBoxLayout()
-        nt_layout.addWidget(QLabel("Normal Textures:"))
-        self.nt_path = QLineEdit()
-        self.nt_path.setReadOnly(False)
-        self.nt_path.setStyleSheet("background-color: #2d2d2d; color: #e0e0e0; padding: 4px;")
-        nt_layout.addWidget(self.nt_path)
-        nt_browse = QPushButton("Browse")
-        nt_browse.clicked.connect(lambda: self.browse_path("nt"))
-        nt_layout.addWidget(nt_browse)
-        path_layout.addLayout(nt_layout)
-        
-        # Custom Textures path
-        ct_layout = QHBoxLayout()
-        ct_layout.addWidget(QLabel("Custom Textures:"))
-        self.ct_path = QLineEdit()
-        self.ct_path.setReadOnly(False)
-        self.ct_path.setStyleSheet("background-color: #2d2d2d; color: #e0e0e0; padding: 4px;")
-        ct_layout.addWidget(self.ct_path)
-        ct_browse = QPushButton("Browse")
-        ct_browse.clicked.connect(lambda: self.browse_path("ct"))
-        ct_layout.addWidget(ct_browse)
-        path_layout.addLayout(ct_layout)
-        
-        # Bloxstrap Path
-        bloxstrap_layout = QHBoxLayout()
-        bloxstrap_layout.addWidget(QLabel("Bloxstrap Path:"))
-        self.bloxstrap_path = QLineEdit()
-        self.bloxstrap_path.setReadOnly(False)
-        self.bloxstrap_path.setStyleSheet("background-color: #2d2d2d; color: #e0e0e0; padding: 4px;")
-        bloxstrap_layout.addWidget(self.bloxstrap_path)
-        bloxstrap_browse = QPushButton("Browse")
-        bloxstrap_browse.clicked.connect(lambda: self.browse_path("bloxstrap"))
-        bloxstrap_layout.addWidget(bloxstrap_browse)
-        path_layout.addLayout(bloxstrap_layout)
-        
-        path_group.setLayout(path_layout)
-        scroll_layout.addWidget(path_group)
-        
-        scroll_layout.addStretch()
-        scroll.setWidget(scroll_widget)
-        content_layout.addWidget(scroll)
-        
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.save_settings)
-        buttons.rejected.connect(self.reject)
-        content_layout.addWidget(buttons)
-        
-        layout.addWidget(content)
-        
-    def choose_color(self, color_type):
-        initial_color = ""
-        if color_type == "bg":
-            initial_color = self.parent.bg_color
-        elif color_type == "accent":
-            initial_color = self.parent.accent_color
-        else:
-            initial_color = self.parent.text_color
-            
-        picker = IntegratedColorPicker(self, initial_color)
-        if picker.exec():
-            color = picker.get_color()
-            if color_type == "bg":
-                self.parent.bg_color = color
-                self.bg_preview.setStyleSheet(f"background-color: {color}; border: 1px solid gray;")
-            elif color_type == "accent":
-                self.parent.accent_color = color
-                self.accent_preview.setStyleSheet(f"background-color: {color}; border: 1px solid gray;")
-            elif color_type == "text":
-                self.parent.text_color = color
-                self.text_preview.setStyleSheet(f"background-color: {color}; border: 1px solid gray;")
-            self.parent.apply_theme()
-            
-    def update_volume_preview(self, value):
-        self.parent.sound_manager.set_volume(value)
-        if self.enable_sounds.isChecked():
-            self.parent.sound_manager.play_click()
-                
-    def update_transparency_preview(self, value):
-        self.parent.window_transparency = value / 100.0
-        self.parent.setWindowOpacity(self.parent.window_transparency)
-        
-    def browse_path(self, path_type):
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
-        if folder:
-            if path_type == "rbxv":
-                self.rbxv_path.setText(folder)
-            elif path_type == "dt":
-                self.dt_path.setText(folder)
-            elif path_type == "nt":
-                self.nt_path.setText(folder)
-            elif path_type == "ct":
-                self.ct_path.setText(folder)
-            elif path_type == "bloxstrap":
-                self.bloxstrap_path.setText(folder)
-                
-    def load_settings(self):
-        settings = QSettings("DRCM", "Settings")
-        self.bg_preview.setStyleSheet(f"background-color: {settings.value('bg_color', '#1a1a2e')}; border: 1px solid gray;")
-        self.accent_preview.setStyleSheet(f"background-color: {settings.value('accent_color', '#4a6fa5')}; border: 1px solid gray;")
-        self.text_preview.setStyleSheet(f"background-color: {settings.value('text_color', '#e0e0e0')}; border: 1px solid gray;")
-        self.transparency_slider.setValue(max(15, int(settings.value('transparency', 100))))
-        self.volume_slider.setValue(int(settings.value('volume', 50)))
-        self.enable_sounds.setChecked(settings.value('enable_sounds', True, type=bool))
-        self.auto_refresh.setChecked(settings.value('auto_refresh', True, type=bool))
-        self.save_state.setChecked(settings.value('save_state', True, type=bool))
-        
-        # Load paths
-        self.rbxv_path.setText(settings.value('rbxv_path', str(DefaultPaths.VERSIONS_DIR)))
-        self.dt_path.setText(settings.value('dt_path', str(DefaultPaths.DT_TEXTURES_DIR)))
-        self.nt_path.setText(settings.value('nt_path', str(DefaultPaths.NT_TEXTURES_DIR)))
-        self.ct_path.setText(settings.value('ct_path', str(DefaultPaths.CUSTOM_TEXTURES_DIR)))
-        self.bloxstrap_path.setText(settings.value('bloxstrap_path', str(DefaultPaths.BLOXSTRAP_PATH)))
-        
-    def save_settings(self):
-        settings = QSettings("DRCM", "Settings")
-        settings.setValue("bg_color", self.parent.bg_color)
-        settings.setValue("accent_color", self.parent.accent_color)
-        settings.setValue("text_color", self.parent.text_color)
-        settings.setValue("transparency", max(15, self.transparency_slider.value()))
-        settings.setValue("volume", self.volume_slider.value())
-        settings.setValue("enable_sounds", self.enable_sounds.isChecked())
-        settings.setValue("auto_refresh", self.auto_refresh.isChecked())
-        settings.setValue("save_state", self.save_state.isChecked())
-        
-        # Save paths
-        settings.setValue("rbxv_path", self.rbxv_path.text())
-        settings.setValue("dt_path", self.dt_path.text())
-        settings.setValue("nt_path", self.nt_path.text())
-        settings.setValue("ct_path", self.ct_path.text())
-        settings.setValue("bloxstrap_path", self.bloxstrap_path.text())
-        
-        self.parent.versions_path = Path(self.rbxv_path.text())
-        self.parent.dt_textures_path = Path(self.dt_path.text())
-        self.parent.nt_textures_path = Path(self.nt_path.text())
-        self.parent.custom_textures_path = Path(self.ct_path.text())
-        self.parent.bloxstrap_path = Path(self.bloxstrap_path.text())
-        
-        self.parent.sound_manager.set_volume(self.volume_slider.value())
-        self.parent.sound_manager.enabled = self.enable_sounds.isChecked()
-        
-        if self.auto_refresh.isChecked():
-            self.parent.auto_refresh_timer.start(5000)
-        else:
-            self.parent.auto_refresh_timer.stop()
-            
-        # Create folders if they don't exist
-        for path in [self.parent.versions_path, self.parent.dt_textures_path, 
-                     self.parent.nt_textures_path, self.parent.custom_textures_path]:
-            path.mkdir(parents=True, exist_ok=True)
-            
-        self.parent.apply_theme()
-        self.accept()
 
 class DownloadThread(QThread):
     progress = Signal(str)
     status = Signal(str, str)
     download_complete = Signal(str, str)
-    browser_closed = Signal()
     
     def __init__(self, download_url, channel, version_id):
         super().__init__()
         self.download_url = download_url
         self.channel = channel
         self.version_id = version_id
-        self.browser_process = None
         self.downloads_path = DOWNLOADS_DIR
-        self.stop_monitoring = False
         
     def run(self):
-        chrome_paths = [
-            "C:/Program Files/Google/Chrome/Application/chrome.exe",
-            "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-            str(USER_HOME / "AppData/Local/Google/Chrome/Application/chrome.exe")
-        ]
-        
-        for chrome_path in chrome_paths:
-            if Path(chrome_path).exists():
-                try:
-                    self.browser_process = subprocess.Popen([chrome_path, self.download_url])
-                    self.progress.emit("Opened in Chrome browser")
-                    break
-                except:
-                    pass
-        
-        if not self.browser_process:
-            webbrowser.open(self.download_url)
-            self.progress.emit("Opened in default browser")
-        
-        self.monitor_downloads()
-        
-    def monitor_downloads(self):
-        initial_files = set()
-        if self.downloads_path.exists():
-            for item in self.downloads_path.iterdir():
-                if item.is_file():
-                    initial_files.add(item.name)
-        
-        timeout = 300
-        start_time = time.time()
-        downloaded_file = None
-        file_stable = False
-        
-        while time.time() - start_time < timeout:
-            if self.stop_monitoring:
-                return
+        try:
+            # Silent download - no browser window
+            from requests import get
+            response = get(self.download_url, stream=True, allow_redirects=True)
+            response.raise_for_status()
             
-            if self.browser_process and self.browser_process.poll() is not None:
-                self.progress.emit("Browser closed before download completed")
-                self.status.emit("Download cancelled", "orange")
-                return
+            filename = f"{self.channel}_{self.version_id}.roblox"
+            filepath = self.downloads_path / filename
             
-            if self.downloads_path.exists():
-                current_files = set()
-                for item in self.downloads_path.iterdir():
-                    if item.is_file():
-                        current_files.add(item.name)
-                
-                new_files = current_files - initial_files
-                
-                for new_file in new_files:
-                    self.progress.emit(f"Detected new file: {new_file}")
-                    source_path = self.downloads_path / new_file
-                    last_size = -1
-                    stable_count = 0
-                    
-                    while stable_count < 3:
-                        if source_path.exists():
-                            current_size = source_path.stat().st_size
-                            if current_size == last_size:
-                                stable_count += 1
-                            else:
-                                stable_count = 0
-                                last_size = current_size
-                            time.sleep(1)
-                        else:
-                            break
-                        
-                        if self.browser_process and self.browser_process.poll() is not None:
-                            self.progress.emit("Browser closed during download")
-                            return
-                    
-                    if stable_count >= 3:
-                        file_stable = True
-                        downloaded_file = new_file
-                        break
-                
-                if file_stable and downloaded_file:
-                    break
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
             
-            time.sleep(1)
-        
-        if file_stable and downloaded_file:
+            with open(filepath, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size:
+                            percent = (downloaded / total_size) * 100
+                            self.progress.emit(f"Downloading: {percent:.1f}%")
+            
             self.progress.emit("Download complete!")
+            self.download_complete.emit(str(filepath), f"{self.channel}-{self.version_id}")
             
-            if self.browser_process:
-                try:
-                    self.browser_process.terminate()
-                    self.progress.emit("Closed Chrome browser")
-                    self.browser_closed.emit()
-                except:
-                    pass
-            
-            source_path = self.downloads_path / downloaded_file
-            self.download_complete.emit(str(source_path), f"{self.channel}-{self.version_id}")
-        else:
-            self.progress.emit("Download timed out")
-            self.status.emit("Download timed out", "red")
+        except Exception as e:
+            self.progress.emit(f"Error: {e}")
+            self.status.emit("Download failed", "red")
 
 class TextureApplyThread(QThread):
     progress = Signal(str)
@@ -863,147 +321,221 @@ class TextureApplyThread(QThread):
             self.progress.emit(f"Error: {e}")
             self.finished.emit(0)
 
-class SoundManager:
-    def __init__(self):
-        self.click_sound = None
-        self.download_sound = None
-        self.complete_sound = None
-        self.error_sound = None
-        self.volume = 0.5
-        self.enabled = True
+class SettingsDialog(AnimatedDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.setWindowTitle("DRCM Settings")
+        self.setMinimumSize(650, 550)
+        self.setup_ui()
+        self.load_settings()
         
-    def init_sounds(self):
-        try:
-            from PySide6.QtMultimedia import QSoundEffect
-            self.click_sound = QSoundEffect()
-            self.download_sound = QSoundEffect()
-            self.complete_sound = QSoundEffect()
-            self.error_sound = QSoundEffect()
-            self.set_volume(self.volume)
-        except:
-            self.enabled = False
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         
-    def set_volume(self, volume):
-        self.volume = volume / 100.0
-        if self.click_sound:
-            self.click_sound.setVolume(self.volume)
-        if self.download_sound:
-            self.download_sound.setVolume(self.volume)
-        if self.complete_sound:
-            self.complete_sound.setVolume(self.volume)
-        if self.error_sound:
-            self.error_sound.setVolume(self.volume)
+        # Title bar
+        title_bar = QWidget()
+        title_bar.setFixedHeight(35)
+        title_bar.setStyleSheet("background-color: #2d2d2d; border-bottom: 1px solid #5a5a5a;")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(10, 5, 10, 5)
+        title_label = QLabel("Settings")
+        title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+        close_btn = QPushButton("×")
+        close_btn.setFixedSize(32, 28)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2d2d2d;
+                border: 1px solid #5a5a5a;
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #ff4444;
+            }
+        """)
+        close_btn.clicked.connect(self.reject)
+        title_layout.addWidget(close_btn)
+        layout.addWidget(title_bar)
         
-    def play_click(self):
-        if self.enabled and self.click_sound:
-            self.click_sound.play()
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(15, 15, 15, 15)
         
-    def play_download(self):
-        if self.enabled and self.download_sound:
-            self.download_sound.play()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
         
-    def play_complete(self):
-        if self.enabled and self.complete_sound:
-            self.complete_sound.play()
+        # Client Selection
+        client_group = QGroupBox("Roblox Client")
+        client_layout = QVBoxLayout()
         
-    def play_error(self):
-        if self.enabled and self.error_sound:
-            self.error_sound.play()
+        self.client_combo = QComboBox()
+        for client in SUPPORTED_CLIENTS.keys():
+            self.client_combo.addItem(client)
+        self.client_combo.currentTextChanged.connect(self.on_client_changed)
+        client_layout.addWidget(self.client_combo)
+        
+        self.client_path_label = QLabel()
+        self.client_path_label.setStyleSheet("color: #888888; font-family: monospace; font-size: 11px;")
+        self.client_path_label.setWordWrap(True)
+        client_layout.addWidget(self.client_path_label)
+        
+        client_group.setLayout(client_layout)
+        scroll_layout.addWidget(client_group)
+        
+        # Theme Colors
+        color_group = QGroupBox("Theme Colors")
+        color_layout = QVBoxLayout()
+        
+        bg_layout = QHBoxLayout()
+        bg_layout.addWidget(QLabel("Background:"))
+        self.bg_color_btn = QPushButton("Choose Color")
+        self.bg_color_btn.clicked.connect(lambda: self.choose_color("bg"))
+        bg_layout.addWidget(self.bg_color_btn)
+        self.bg_preview = QLabel()
+        self.bg_preview.setFixedSize(50, 25)
+        bg_layout.addWidget(self.bg_preview)
+        bg_layout.addStretch()
+        color_layout.addLayout(bg_layout)
+        
+        accent_layout = QHBoxLayout()
+        accent_layout.addWidget(QLabel("Accent:"))
+        self.accent_color_btn = QPushButton("Choose Color")
+        self.accent_color_btn.clicked.connect(lambda: self.choose_color("accent"))
+        accent_layout.addWidget(self.accent_color_btn)
+        self.accent_preview = QLabel()
+        self.accent_preview.setFixedSize(50, 25)
+        accent_layout.addWidget(self.accent_preview)
+        accent_layout.addStretch()
+        color_layout.addLayout(accent_layout)
+        
+        color_group.setLayout(color_layout)
+        scroll_layout.addWidget(color_group)
+        
+        # Credits
+        credits_group = QGroupBox("About")
+        credits_layout = QVBoxLayout()
+        
+        credits_label = QLabel("DRCM - Roblox Version Manager")
+        credits_label.setAlignment(Qt.AlignCenter)
+        credits_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #4a6fa5;")
+        credits_layout.addWidget(credits_label)
+        
+        version_label = QLabel("Version 1.0.0")
+        version_label.setAlignment(Qt.AlignCenter)
+        version_label.setStyleSheet("color: #888888;")
+        credits_layout.addWidget(version_label)
+        
+        credits_layout.addSpacing(5)
+        
+        dev_label = QLabel("Created by: Dev_Z / ipad_halobuck")
+        dev_label.setAlignment(Qt.AlignCenter)
+        dev_label.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        credits_layout.addWidget(dev_label)
+        
+        credits_group.setLayout(credits_layout)
+        scroll_layout.addWidget(credits_group)
+        
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_widget)
+        content_layout.addWidget(scroll)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.save_settings)
+        buttons.rejected.connect(self.reject)
+        content_layout.addWidget(buttons)
+        
+        layout.addWidget(content)
+        
+    def on_client_changed(self, client_name):
+        if client_name in SUPPORTED_CLIENTS:
+            self.client_path_label.setText(f"Path: {SUPPORTED_CLIENTS[client_name]}")
+        
+    def choose_color(self, color_type):
+        from PySide6.QtWidgets import QColorDialog
+        color = QColorDialog.getColor()
+        if color.isValid():
+            if color_type == "bg":
+                self.parent.bg_color = color.name()
+                self.bg_preview.setStyleSheet(f"background-color: {color.name()}; border: 1px solid gray;")
+            elif color_type == "accent":
+                self.parent.accent_color = color.name()
+                self.accent_preview.setStyleSheet(f"background-color: {color.name()}; border: 1px solid gray;")
+            self.parent.apply_theme()
+                
+    def load_settings(self):
+        settings = QSettings("DRCM", "Settings")
+        self.bg_preview.setStyleSheet(f"background-color: {settings.value('bg_color', '#1a1a2e')}; border: 1px solid gray;")
+        self.accent_preview.setStyleSheet(f"background-color: {settings.value('accent_color', '#4a6fa5')}; border: 1px solid gray;")
+        
+        client = settings.value("client", "Bloxstrap")
+        idx = self.client_combo.findText(client)
+        if idx >= 0:
+            self.client_combo.setCurrentIndex(idx)
+        
+    def save_settings(self):
+        settings = QSettings("DRCM", "Settings")
+        settings.setValue("bg_color", self.parent.bg_color)
+        settings.setValue("accent_color", self.parent.accent_color)
+        settings.setValue("client", self.client_combo.currentText())
+        
+        self.parent.bloxstrap_path = SUPPORTED_CLIENTS.get(self.client_combo.currentText(), SUPPORTED_CLIENTS["Bloxstrap"])
+        self.parent.apply_theme()
+        self.accept()
 
-class RobloxVersionManager(QMainWindow):
+class RobloxVersionManager(AnimatedMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DRCM - Roblox Version Manager")
-        self.setMinimumSize(1300, 850)
+        self.setMinimumSize(1200, 800)
         self.setWindowFlags(Qt.FramelessWindowHint)
         
-        # Load version from file
-        self.version = get_app_version()
+        # Paths
+        self.drcm_dir = DOWNLOADS_DIR / "Drcm"
+        self.versions_path = self.drcm_dir / "RbxV"
+        self.dt_textures_path = self.drcm_dir / "dt" / "dt"
+        self.nt_textures_path = self.drcm_dir / "nt" / "nt"
+        self.custom_textures_path = self.drcm_dir / "ct"
         
-        # Load saved paths or use defaults
+        # Load client from settings
         settings = QSettings("DRCM", "Settings")
-        self.versions_path = Path(settings.value('rbxv_path', str(DefaultPaths.VERSIONS_DIR)))
-        self.bloxstrap_path = Path(settings.value('bloxstrap_path', str(DefaultPaths.BLOXSTRAP_PATH)))
-        self.dt_textures_path = Path(settings.value('dt_path', str(DefaultPaths.DT_TEXTURES_DIR)))
-        self.nt_textures_path = Path(settings.value('nt_path', str(DefaultPaths.NT_TEXTURES_DIR)))
-        self.custom_textures_path = Path(settings.value('ct_path', str(DefaultPaths.CUSTOM_TEXTURES_DIR)))
+        client_name = settings.value("client", "")
+        if client_name and client_name in SUPPORTED_CLIENTS:
+            self.bloxstrap_path = SUPPORTED_CLIENTS[client_name]
+        else:
+            # First time - ask user
+            dialog = ClientSelectionDialog(self)
+            if dialog.exec() == QDialog.Accepted and dialog.selected_client:
+                self.bloxstrap_path = SUPPORTED_CLIENTS.get(dialog.selected_client, SUPPORTED_CLIENTS["Bloxstrap"])
+                settings.setValue("client", dialog.selected_client)
+            else:
+                self.bloxstrap_path = SUPPORTED_CLIENTS["Bloxstrap"]
         
         # Create folders
-        for path in [self.versions_path, self.dt_textures_path, 
-                     self.nt_textures_path, self.custom_textures_path,
-                     DefaultPaths.SETTINGS_DIR, DefaultPaths.SOUNDS_DIR]:
+        for path in [self.versions_path, self.dt_textures_path, self.nt_textures_path, self.custom_textures_path]:
             path.mkdir(parents=True, exist_ok=True)
         
-        self.bg_color = "#1a1a2e"
-        self.accent_color = "#4a6fa5"
-        self.text_color = "#e0e0e0"
-        self.window_transparency = 1.0
-        
-        self.sound_manager = SoundManager()
-        self.sound_manager.init_sounds()
+        # Theme colors
+        self.bg_color = settings.value("bg_color", "#1a1a2e")
+        self.accent_color = settings.value("accent_color", "#4a6fa5")
         
         self.download_thread = None
         self.texture_thread = None
         self.tree_state = {}
-        self.last_expand_time = 0
-        self.last_refresh_time = 0
-        self.refresh_in_progress = False
-        
-        self.auto_refresh_timer = QTimer()
-        self.auto_refresh_timer.timeout.connect(self.auto_refresh_versions)
         
         self.setup_ui()
-        self.load_settings()
         self.apply_theme()
         self.refresh_versions()
         self.refresh_current_version()
         
-        if settings.value("auto_refresh", True, type=bool):
-            self.auto_refresh_timer.start(5000)
-        
         self.setAcceptDrops(True)
-        self.versions_tree.viewport().setAcceptDrops(True)
-        self.versions_tree.setDragDropMode(QAbstractItemView.DragDrop)
-        
-    def auto_refresh_versions(self):
-        current_time = time.time()
-        if current_time - self.last_refresh_time > 4.9 and not self.refresh_in_progress:
-            self.refresh_in_progress = True
-            try:
-                self.refresh_versions_silent()
-            finally:
-                self.refresh_in_progress = False
-        
-    def refresh_versions_silent(self):
-        self.versions_tree.clear()
-        self.load_tree_state()
-        
-        def add_items(path, parent=None):
-            try:
-                items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
-                for item in items:
-                    if item.is_dir():
-                        display_name = f"[{item.name}]"
-                        tree_item = QTreeWidgetItem(parent or self.versions_tree, [display_name, "Folder", "", ""])
-                        add_items(item, tree_item)
-                        if self.tree_state.get(item.name, False):
-                            tree_item.setExpanded(True)
-                    else:
-                        size_mb = item.stat().st_size / (1024 * 1024)
-                        modified = datetime.fromtimestamp(item.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-                        file_type = item.suffix[1:].upper() if item.suffix else "File"
-                        tree_item = QTreeWidgetItem(parent or self.versions_tree, 
-                                                    [item.name, file_type, f"{size_mb:.2f} MB", modified])
-                    if parent:
-                        parent.addChild(tree_item)
-                    else:
-                        self.versions_tree.addTopLevelItem(tree_item)
-            except Exception:
-                pass
-        
-        add_items(self.versions_path)
-        self.versions_tree.resizeColumnToContents(0)
-        self.versions_tree.resizeColumnToContents(1)
         
     def setup_ui(self):
         central_widget = QWidget()
@@ -1019,24 +551,23 @@ class RobloxVersionManager(QMainWindow):
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(10, 10, 10, 10)
         
+        # Menu bar
         menu_bar = QHBoxLayout()
         settings_btn = QPushButton("Settings")
         settings_btn.clicked.connect(self.open_settings)
         menu_bar.addWidget(settings_btn)
-        
-        version_label = QLabel(f"Version {self.version}")
-        version_label.setStyleSheet("color: #888888;")
-        menu_bar.addWidget(version_label)
-        
         menu_bar.addStretch()
         content_layout.addLayout(menu_bar)
         
+        # Main splitter
         main_splitter = QSplitter(Qt.Horizontal)
         
+        # Left panel
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(5, 5, 5, 5)
         
+        # Download section
         download_frame = QFrame()
         download_frame.setObjectName("card")
         download_layout = QVBoxLayout(download_frame)
@@ -1049,7 +580,6 @@ class RobloxVersionManager(QMainWindow):
         controls_layout.addWidget(QLabel("Channel:"))
         self.channel_combo = QComboBox()
         self.channel_combo.addItems(["LIVE", "LIVE-Client", "LIVE-WindowsPlayer", "LIVE-Studio"])
-        self.channel_combo.setEditable(True)
         controls_layout.addWidget(self.channel_combo)
         
         controls_layout.addWidget(QLabel("Version:"))
@@ -1070,6 +600,7 @@ class RobloxVersionManager(QMainWindow):
         
         left_layout.addWidget(download_frame)
         
+        # Versions tree
         versions_frame = QFrame()
         versions_frame.setObjectName("card")
         versions_layout = QVBoxLayout(versions_frame)
@@ -1095,7 +626,7 @@ class RobloxVersionManager(QMainWindow):
                 background-color: #4a6fa5;
             }
         """)
-        self.refresh_btn.clicked.connect(self.refresh_versions_manual)
+        self.refresh_btn.clicked.connect(self.refresh_versions)
         versions_header.addWidget(self.refresh_btn)
         
         versions_layout.addLayout(versions_header)
@@ -1105,11 +636,10 @@ class RobloxVersionManager(QMainWindow):
         self.versions_tree.setIndentation(20)
         self.versions_tree.setAlternatingRowColors(True)
         self.versions_tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.versions_tree.customContextMenuRequested.connect(self.show_version_context_menu)
-        self.versions_tree.itemExpanded.connect(self.on_item_expanded)
-        self.versions_tree.itemCollapsed.connect(self.save_tree_state)
+        self.versions_tree.customContextMenuRequested.connect(self.show_context_menu)
         versions_layout.addWidget(self.versions_tree)
         
+        # Action buttons
         action_layout = QHBoxLayout()
         self.change_btn = QPushButton("Activate Version")
         self.change_btn.clicked.connect(self.change_version)
@@ -1119,7 +649,7 @@ class RobloxVersionManager(QMainWindow):
         self.delete_btn.clicked.connect(self.delete_selected)
         action_layout.addWidget(self.delete_btn)
         
-        self.import_btn = QPushButton("Import Version")
+        self.import_btn = QPushButton("Import Version (ZIP)")
         self.import_btn.clicked.connect(self.import_version)
         action_layout.addWidget(self.import_btn)
         
@@ -1129,10 +659,12 @@ class RobloxVersionManager(QMainWindow):
         left_layout.addWidget(versions_frame)
         main_splitter.addWidget(left_panel)
         
+        # Right panel
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(5, 5, 5, 5)
         
+        # Active version
         active_frame = QFrame()
         active_frame.setObjectName("card")
         active_layout = QVBoxLayout(active_frame)
@@ -1148,6 +680,7 @@ class RobloxVersionManager(QMainWindow):
         
         right_layout.addWidget(active_frame)
         
+        # Texture management
         texture_frame = QFrame()
         texture_frame.setObjectName("card")
         texture_layout = QVBoxLayout(texture_frame)
@@ -1164,16 +697,17 @@ class RobloxVersionManager(QMainWindow):
         normal_btn.clicked.connect(self.apply_normal_textures)
         texture_layout.addWidget(normal_btn)
         
-        custom_btn = QPushButton("Apply Custom Textures")
+        custom_btn = QPushButton("Apply Custom Textures (ZIP)")
         custom_btn.clicked.connect(self.apply_custom_textures)
         texture_layout.addWidget(custom_btn)
         
-        import_custom_btn = QPushButton("Import Custom Textures")
+        import_custom_btn = QPushButton("Import Custom Texture ZIP")
         import_custom_btn.clicked.connect(self.import_custom_textures)
         texture_layout.addWidget(import_custom_btn)
         
         right_layout.addWidget(texture_frame)
         
+        # File browser
         browser_frame = QFrame()
         browser_frame.setObjectName("card")
         browser_layout = QVBoxLayout(browser_frame)
@@ -1186,24 +720,24 @@ class RobloxVersionManager(QMainWindow):
         self.file_browser.setHeaderLabels(["Name", "Size", "Modified"])
         self.file_browser.setIndentation(20)
         self.file_browser.itemDoubleClicked.connect(self.browse_file)
-        self.file_browser.setDragEnabled(True)
-        self.file_browser.setAcceptDrops(True)
         browser_layout.addWidget(self.file_browser)
         
         right_layout.addWidget(browser_frame)
         
         main_splitter.addWidget(right_panel)
-        main_splitter.setSizes([700, 600])
+        main_splitter.setSizes([650, 550])
         content_layout.addWidget(main_splitter)
         
+        # Log output
         self.log_output = QTextEdit()
         self.log_output.setObjectName("log_output")
         self.log_output.setReadOnly(True)
-        self.log_output.setMaximumHeight(120)
+        self.log_output.setMaximumHeight(100)
         content_layout.addWidget(self.log_output)
         
         main_layout.addWidget(content)
         
+        # Status bar
         self.status_bar = self.statusBar()
         self.status_label = QLabel("Ready")
         self.status_bar.addWidget(self.status_label)
@@ -1213,93 +747,329 @@ class RobloxVersionManager(QMainWindow):
         self.progress_bar.setVisible(False)
         self.status_bar.addPermanentWidget(self.progress_bar)
         
-        self.title_bar.mousePressEvent = self.title_bar_mouse_press
-        self.title_bar.mouseMoveEvent = self.title_bar_mouse_move
-        
-    def refresh_versions_manual(self):
-        self.last_refresh_time = time.time()
-        self.refresh_versions()
-        if self.sound_manager.enabled:
-            self.sound_manager.play_click()
-        
-    def on_item_expanded(self, item):
-        current_time = time.time()
-        if current_time - self.last_expand_time > 0.1:
-            self.last_expand_time = current_time
-            self.save_tree_state(item)
-        
-    def title_bar_mouse_press(self, event):
-        self.drag_pos = event.globalPosition().toPoint()
-        
-    def title_bar_mouse_move(self, event):
-        if hasattr(self, 'drag_pos'):
-            self.move(self.pos() + event.globalPosition().toPoint() - self.drag_pos)
-            self.drag_pos = event.globalPosition().toPoint()
-            
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-            
-    def dropEvent(self, event):
-        for url in event.mimeData().urls():
-            file_path = url.toLocalFile()
-            if file_path:
-                dest = self.versions_path / Path(file_path).name
-                if Path(file_path).is_dir():
-                    shutil.copytree(file_path, dest, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(file_path, dest)
-                self.log(f"Copied: {Path(file_path).name}")
-        self.refresh_versions()
-        if self.sound_manager.enabled:
-            self.sound_manager.play_click()
-        
-    def save_tree_state(self, item):
-        if item:
-            item_name = item.text(0)
-            if item_name.startswith("[") and item_name.endswith("]"):
-                item_name = item_name[1:-1]
-            self.tree_state[item_name] = item.isExpanded()
-            settings = QSettings("DRCM", "TreeState")
-            settings.setValue("tree_state", json.dumps(self.tree_state))
-            
-    def load_tree_state(self):
-        settings = QSettings("DRCM", "TreeState")
-        state = settings.value("tree_state", "{}")
+    def extract_zip(self, zip_path, dest_folder):
+        """Extract a zip file to destination folder"""
         try:
-            self.tree_state = json.loads(state)
-        except:
-            self.tree_state = {}
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(dest_folder)
+            return True
+        except Exception as e:
+            self.log(f"Error extracting zip: {e}")
+            return False
+    
+    def import_version(self):
+        """Import a Roblox version from ZIP file"""
+        file_path, _ = QFileDialog.getOpenFileName(self, "Import Roblox Version", 
+                                                   str(DOWNLOADS_DIR), 
+                                                   "Zip Files (*.zip)")
+        if file_path:
+            folder_name = Path(file_path).stem
+            dest_folder = self.versions_path / folder_name
             
-    def browse_file(self, item, column):
-        file_path = item.data(0, Qt.UserRole)
-        if file_path and Path(file_path).exists():
-            if Path(file_path).is_dir():
-                self.load_file_browser(Path(file_path))
+            self.log(f"Importing {Path(file_path).name}...")
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, 0)
+            
+            if self.extract_zip(file_path, dest_folder):
+                self.log(f"Successfully imported to: {dest_folder}")
+                self.refresh_versions()
             else:
-                os.startfile(file_path)
+                self.log("Import failed!")
+            
+            self.progress_bar.setVisible(False)
+    
+    def import_custom_textures(self):
+        """Import custom textures from ZIP file"""
+        file_path, _ = QFileDialog.getOpenFileName(self, "Import Custom Textures",
+                                                   str(DOWNLOADS_DIR),
+                                                   "Zip Files (*.zip)")
+        if file_path:
+            folder_name = Path(file_path).stem
+            dest_folder = self.custom_textures_path
+            
+            self.log(f"Importing textures from {Path(file_path).name}...")
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, 0)
+            
+            if self.extract_zip(file_path, dest_folder):
+                self.log(f"Successfully imported textures to: {dest_folder}")
+            else:
+                self.log("Import failed!")
+            
+            self.progress_bar.setVisible(False)
+    
+    def apply_custom_textures(self):
+        """Apply custom textures from imported ZIP"""
+        if not self.custom_textures_path.exists():
+            self.log("No custom textures found. Import a ZIP first.")
+            return
+            
+        current_version = self.get_current_version_path()
+        if not current_version:
+            self.log("No version active")
+            return
+            
+        textures_path = current_version / "PlatformContent" / "pc" / "textures"
+        
+        self.log("Applying custom textures...")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        
+        self.texture_thread = TextureApplyThread(self.custom_textures_path, textures_path, clear_first=True)
+        self.texture_thread.progress.connect(self.log)
+        self.texture_thread.finished.connect(self.on_texture_finished)
+        self.texture_thread.start()
+    
+    def download_version(self):
+        """Download version silently in background"""
+        version_id = self.version_input.text().strip()
+        channel = self.channel_combo.currentText()
+        
+        if not version_id:
+            self.log("Enter a version ID")
+            return
+            
+        download_url = f"https://rdd.latte.to/?channel={channel}&binaryType=WindowsPlayer&version={version_id}"
+        self.log(f"Downloading: {version_id}")
+        
+        self.download_btn.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        self.monitor_label.setText("Downloading...")
+        
+        self.download_thread = DownloadThread(download_url, channel, version_id)
+        self.download_thread.progress.connect(self.log)
+        self.download_thread.status.connect(self.monitor_label.setText)
+        self.download_thread.download_complete.connect(self.on_download_complete)
+        self.download_thread.finished.connect(self.on_download_finished)
+        self.download_thread.start()
+    
+    def on_download_complete(self, filepath, folder_name):
+        """Handle downloaded file"""
+        source_path = Path(filepath)
+        dest_folder = self.versions_path / folder_name
+        
+        self.log(f"Processing: {source_path.name}")
+        self.monitor_label.setText("Extracting...")
+        
+        try:
+            # Extract the file (it's a zip disguised as .roblox)
+            dest_folder.mkdir(exist_ok=True)
+            with zipfile.ZipFile(source_path, 'r') as zip_ref:
+                zip_ref.extractall(dest_folder)
+            source_path.unlink()
+            
+            self.log(f"Extracted to: {folder_name}")
+            self.log("Download complete!")
+            self.monitor_label.setText("Complete!")
+            self.refresh_versions()
+            
+        except Exception as e:
+            self.log(f"Error: {e}")
+            self.monitor_label.setText("Error")
+    
+    def on_download_finished(self):
+        self.download_btn.setEnabled(True)
+        self.progress_bar.setVisible(False)
+        QTimer.singleShot(3000, lambda: self.monitor_label.setText(""))
+    
+    def change_version(self):
+        """Activate selected version"""
+        items = self.versions_tree.selectedItems()
+        if not items:
+            self.log("Select a version to activate")
+            return
+            
+        item = items[0]
+        while item.parent():
+            item = item.parent()
+            
+        item_name = item.text(0)
+        if item_name.startswith("["):
+            item_name = item_name[1:-1]
+            
+        item_path = self.versions_path / item_name
+        
+        if not item_path.exists():
+            self.log(f"Not found: {item_name}")
+            return
+            
+        try:
+            self.log(f"Activating: {item_name}")
+            
+            # Wipe current versions folder
+            if self.bloxstrap_path.exists():
+                for existing in self.bloxstrap_path.iterdir():
+                    try:
+                        if existing.is_dir():
+                            shutil.rmtree(existing)
+                        else:
+                            existing.unlink()
+                    except:
+                        pass
+            
+            # Copy selected version
+            if item_path.is_dir():
+                dest_path = self.bloxstrap_path / item_name
+                shutil.copytree(item_path, dest_path)
+                self.log(f"Copied folder: {item_name}")
+            else:
+                # Extract if it's a file
+                folder_name = item_path.stem
+                dest_folder = self.bloxstrap_path / folder_name
+                dest_folder.mkdir(exist_ok=True)
                 
+                if item_path.suffix.lower() in ['.zip', '.roblox']:
+                    with zipfile.ZipFile(item_path, 'r') as zip_ref:
+                        zip_ref.extractall(dest_folder)
+                else:
+                    shutil.copy2(item_path, dest_folder / item_path.name)
+            
+            self.log("Activation complete!")
+            self.refresh_current_version()
+            
+        except Exception as e:
+            self.log(f"Error: {e}")
+    
+    def apply_dark_textures(self):
+        """Apply dark textures from dt folder"""
+        current_version = self.get_current_version_path()
+        if not current_version:
+            self.log("No version active")
+            return
+            
+        textures_path = current_version / "PlatformContent" / "pc" / "textures"
+        
+        if not self.dt_textures_path.exists():
+            self.log("Dark textures not found")
+            return
+            
+        self.log("Applying dark textures...")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        
+        self.texture_thread = TextureApplyThread(self.dt_textures_path, textures_path, clear_first=True)
+        self.texture_thread.progress.connect(self.log)
+        self.texture_thread.finished.connect(self.on_texture_finished)
+        self.texture_thread.start()
+    
+    def apply_normal_textures(self):
+        """Restore normal textures from nt folder"""
+        current_version = self.get_current_version_path()
+        if not current_version:
+            self.log("No version active")
+            return
+            
+        textures_path = current_version / "PlatformContent" / "pc" / "textures"
+        
+        if not textures_path.exists():
+            self.log("Textures folder not found")
+            return
+            
+        if not self.nt_textures_path.exists():
+            self.log("Normal textures not found")
+            return
+            
+        self.log("Restoring normal textures...")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        
+        self.texture_thread = TextureApplyThread(self.nt_textures_path, textures_path, clear_first=True)
+        self.texture_thread.progress.connect(self.log)
+        self.texture_thread.finished.connect(self.on_texture_finished)
+        self.texture_thread.start()
+    
+    def on_texture_finished(self, count):
+        self.progress_bar.setVisible(False)
+        self.log(f"Complete! Processed {count} items")
+    
+    def refresh_versions(self):
+        """Refresh the versions tree"""
+        self.versions_tree.clear()
+        
+        def add_items(path, parent=None):
+            try:
+                for item in sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+                    if item.is_dir():
+                        display_name = f"[{item.name}]"
+                        tree_item = QTreeWidgetItem(parent or self.versions_tree, [display_name, "Folder", "", ""])
+                        add_items(item, tree_item)
+                    else:
+                        size_mb = item.stat().st_size / (1024 * 1024)
+                        modified = datetime.fromtimestamp(item.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                        file_type = item.suffix[1:].upper() if item.suffix else "File"
+                        tree_item = QTreeWidgetItem(parent or self.versions_tree, 
+                                                    [item.name, file_type, f"{size_mb:.2f} MB", modified])
+                    if parent:
+                        parent.addChild(tree_item)
+                    else:
+                        self.versions_tree.addTopLevelItem(tree_item)
+            except Exception:
+                pass
+        
+        add_items(self.versions_path)
+        self.versions_tree.resizeColumnToContents(0)
+        self.log(f"Found {self.versions_tree.topLevelItemCount()} items")
+    
+    def refresh_current_version(self):
+        """Update the active version display"""
+        try:
+            if self.bloxstrap_path.exists():
+                for item in self.bloxstrap_path.iterdir():
+                    if item.is_dir():
+                        self.current_version_display.setText(item.name)
+                        self.load_file_browser(self.bloxstrap_path / item.name)
+                        return
+            self.current_version_display.setText("No version active")
+            self.load_file_browser()
+        except Exception as e:
+            self.log(f"Error: {e}")
+    
+    def get_current_version_path(self):
+        """Get the path of the currently active version"""
+        if self.bloxstrap_path.exists():
+            for item in self.bloxstrap_path.iterdir():
+                if item.is_dir():
+                    return item
+        return None
+    
     def load_file_browser(self, path=None):
+        """Load file browser for a given path"""
         self.file_browser.clear()
         if path is None:
             path = self.bloxstrap_path if self.bloxstrap_path.exists() else USER_HOME
-            
-        current_path = QTreeWidgetItem(self.file_browser, ["..", "", ""])
-        current_path.setData(0, Qt.UserRole, str(path.parent))
         
-        for item in sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
-            if item.is_dir():
-                tree_item = QTreeWidgetItem(self.file_browser, [f"[{item.name}]", "", ""])
-            else:
-                size_mb = item.stat().st_size / (1024 * 1024)
-                modified = datetime.fromtimestamp(item.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-                tree_item = QTreeWidgetItem(self.file_browser, 
-                                           [item.name, f"{size_mb:.2f} MB", modified])
-            tree_item.setData(0, Qt.UserRole, str(item))
+        try:
+            current_path = QTreeWidgetItem(self.file_browser, ["..", "", ""])
+            current_path.setData(0, Qt.UserRole, str(path.parent))
             
-        self.file_browser.resizeColumnToContents(0)
-        
-    def show_version_context_menu(self, position):
+            for item in sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+                if item.is_dir():
+                    tree_item = QTreeWidgetItem(self.file_browser, [f"[{item.name}]", "", ""])
+                else:
+                    size_mb = item.stat().st_size / (1024 * 1024)
+                    modified = datetime.fromtimestamp(item.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                    tree_item = QTreeWidgetItem(self.file_browser, [item.name, f"{size_mb:.2f} MB", modified])
+                tree_item.setData(0, Qt.UserRole, str(item))
+            
+            self.file_browser.resizeColumnToContents(0)
+        except Exception as e:
+            self.log(f"Error loading file browser: {e}")
+    
+    def browse_file(self, item, column):
+        """Open file or folder in explorer"""
+        file_path = item.data(0, Qt.UserRole)
+        if file_path and Path(file_path).exists():
+            try:
+                if Path(file_path).is_dir():
+                    os.startfile(str(file_path))
+                else:
+                    os.startfile(str(file_path))
+            except Exception as e:
+                self.log(f"Error opening: {e}")
+    
+    def show_context_menu(self, position):
+        """Show right-click context menu"""
         item = self.versions_tree.itemAt(position)
         if item:
             menu = QMenu()
@@ -1311,69 +1081,10 @@ class RobloxVersionManager(QMainWindow):
             open_action.triggered.connect(self.open_selected_folder)
             menu.addAction(open_action)
             
-            copy_action = QAction("Copy Path", self)
-            copy_action.triggered.connect(self.copy_path)
-            menu.addAction(copy_action)
-            
             menu.exec(self.versions_tree.viewport().mapToGlobal(position))
-            
-    def copy_path(self):
-        items = self.versions_tree.selectedItems()
-        if items:
-            item_name = items[0].text(0)
-            if item_name.startswith("[") and item_name.endswith("]"):
-                item_name = item_name[1:-1]
-            item_path = self.versions_path / item_name
-            QApplication.clipboard().setText(str(item_path))
-            self.log(f"Copied path: {item_path}")
-            
-    def import_version(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Import Roblox Version", 
-                                                   str(DOWNLOADS_DIR), 
-                                                   "Roblox Files (*.zip *.roblox *.rbx)")
-        if file_path:
-            dest = self.versions_path / Path(file_path).name
-            shutil.copy2(file_path, dest)
-            self.log(f"Imported: {Path(file_path).name}")
-            self.refresh_versions()
-            if self.sound_manager.enabled:
-                self.sound_manager.play_click()
-            
-    def import_custom_textures(self):
-        files, _ = QFileDialog.getOpenFileNames(self, "Import Custom Textures",
-                                                str(DOWNLOADS_DIR),
-                                                "Image Files (*.png *.jpg *.jpeg *.dds)")
-        if files:
-            for file in files:
-                dest = self.custom_textures_path / Path(file).name
-                shutil.copy2(file, dest)
-                self.log(f"Imported texture: {Path(file).name}")
-            self.log(f"Imported {len(files)} textures")
-            if self.sound_manager.enabled:
-                self.sound_manager.play_click()
-            
-    def apply_custom_textures(self):
-        current_version = self.get_current_version_path()
-        if not current_version:
-            self.log("No version active")
-            return
-            
-        textures_path = current_version / "PlatformContent" / "pc" / "textures"
-        
-        if not self.custom_textures_path.exists():
-            self.log("No custom textures found")
-            return
-            
-        self.log("Applying custom textures...")
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
-        
-        self.texture_thread = TextureApplyThread(self.custom_textures_path, textures_path, clear_first=True)
-        self.texture_thread.progress.connect(self.log)
-        self.texture_thread.finished.connect(self.texture_finished)
-        self.texture_thread.start()
-        
+    
     def delete_selected(self):
+        """Delete selected items"""
         items = self.versions_tree.selectedItems()
         if not items:
             return
@@ -1397,10 +1108,9 @@ class RobloxVersionManager(QMainWindow):
                 except Exception as e:
                     self.log(f"Error: {e}")
             self.refresh_versions()
-            if self.sound_manager.enabled:
-                self.sound_manager.play_click()
-            
+    
     def open_selected_folder(self):
+        """Open selected folder in Windows Explorer"""
         items = self.versions_tree.selectedItems()
         if items:
             item_name = items[0].text(0)
@@ -1413,274 +1123,29 @@ class RobloxVersionManager(QMainWindow):
                 except Exception as e:
                     self.log(f"Error opening folder: {e}")
                     QMessageBox.warning(self, "Error", f"Could not open folder: {e}")
-                
-    def refresh_current_version(self):
-        try:
-            if self.bloxstrap_path.exists():
-                for item in self.bloxstrap_path.iterdir():
-                    if item.is_dir():
-                        self.current_version_display.setText(item.name)
-                        self.load_file_browser(self.bloxstrap_path / item.name)
-                        return
-            self.current_version_display.setText("No version active")
-            self.load_file_browser()
-        except Exception as e:
-            self.log(f"Error: {e}")
-            
-    def get_current_version_path(self):
-        if self.bloxstrap_path.exists():
-            for item in self.bloxstrap_path.iterdir():
-                if item.is_dir():
-                    return item
-        return None
-        
+    
     def log(self, message):
+        """Add message to log output"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_output.append(f"[{timestamp}] {message}")
         self.status_label.setText(message)
-        
-    def refresh_versions(self):
-        self.last_refresh_time = time.time()
-        self.versions_tree.clear()
-        self.load_tree_state()
-        
-        def add_items(path, parent=None):
-            try:
-                items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
-                for item in items:
-                    if item.is_dir():
-                        display_name = f"[{item.name}]"
-                        tree_item = QTreeWidgetItem(parent or self.versions_tree, [display_name, "Folder", "", ""])
-                        add_items(item, tree_item)
-                        if self.tree_state.get(item.name, False):
-                            tree_item.setExpanded(True)
-                    else:
-                        size_mb = item.stat().st_size / (1024 * 1024)
-                        modified = datetime.fromtimestamp(item.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-                        file_type = item.suffix[1:].upper() if item.suffix else "File"
-                        tree_item = QTreeWidgetItem(parent or self.versions_tree, 
-                                                    [item.name, file_type, f"{size_mb:.2f} MB", modified])
-                    if parent:
-                        parent.addChild(tree_item)
-                    else:
-                        self.versions_tree.addTopLevelItem(tree_item)
-            except Exception as e:
-                self.log(f"Error reading directory: {e}")
-        
-        add_items(self.versions_path)
-        self.versions_tree.resizeColumnToContents(0)
-        self.versions_tree.resizeColumnToContents(1)
-        self.log(f"Found {self.versions_tree.topLevelItemCount()} items")
-        
-    def download_version(self):
-        version_id = self.version_input.text().strip()
-        channel = self.channel_combo.currentText()
-        
-        if not version_id:
-            self.log("Enter a version ID")
-            return
-            
-        download_url = f"https://rdd.latte.to/?channel={channel}&binaryType=WindowsPlayer&version={version_id}"
-        self.log(f"Downloading: {version_id}")
-        
-        if self.sound_manager.enabled:
-            self.sound_manager.play_download()
-        
-        self.download_btn.setEnabled(False)
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
-        self.monitor_label.setText("Waiting for download...")
-        
-        self.download_thread = DownloadThread(download_url, channel, version_id)
-        self.download_thread.progress.connect(self.log)
-        self.download_thread.status.connect(self.monitor_label.setText)
-        self.download_thread.download_complete.connect(self.process_downloaded_file)
-        self.download_thread.finished.connect(self.download_finished)
-        self.download_thread.start()
-        
-    def download_finished(self):
-        self.download_btn.setEnabled(True)
-        self.progress_bar.setVisible(False)
-        self.monitor_label.setText("")
-        
-    def process_downloaded_file(self, source_path_str, folder_name):
-        source_path = Path(source_path_str)
-        dest_folder = self.versions_path / folder_name
-        
-        self.log(f"Processing: {source_path.name}")
-        self.monitor_label.setText("Extracting...")
-        
-        try:
-            if dest_folder.exists():
-                shutil.rmtree(dest_folder)
-            dest_folder.mkdir(exist_ok=True)
-            
-            if source_path.suffix.lower() in ['.zip', '.roblox']:
-                with zipfile.ZipFile(source_path, 'r') as zip_ref:
-                    zip_ref.extractall(dest_folder)
-                source_path.unlink()
-                self.log(f"Extracted to: {folder_name}")
-            else:
-                shutil.move(str(source_path), str(dest_folder / source_path.name))
-                self.log(f"Moved to: {folder_name}")
-            
-            self.log("Download complete!")
-            self.monitor_label.setText("Complete!")
-            self.refresh_versions()
-            
-            if self.sound_manager.enabled:
-                self.sound_manager.play_complete()
-            
-        except Exception as e:
-            self.log(f"Error: {e}")
-            self.monitor_label.setText("Error")
-            if self.sound_manager.enabled:
-                self.sound_manager.play_error()
-            
-        QTimer.singleShot(3000, lambda: self.monitor_label.setText(""))
-        
-    def change_version(self):
-        items = self.versions_tree.selectedItems()
-        if not items:
-            self.log("Select a version to activate")
-            return
-            
-        item = items[0]
-        while item.parent():
-            item = item.parent()
-            
-        item_name = item.text(0)
-        if item_name.startswith("[") and item_name.endswith("]"):
-            item_name = item_name[1:-1]
-            
-        item_path = self.versions_path / item_name
-        
-        if not item_path.exists():
-            self.log(f"Not found: {item_name}")
-            return
-            
-        try:
-            self.log(f"Activating: {item_name}")
-            
-            if self.bloxstrap_path.exists():
-                for existing in self.bloxstrap_path.iterdir():
-                    try:
-                        if existing.is_dir():
-                            shutil.rmtree(existing)
-                        else:
-                            existing.unlink()
-                    except:
-                        pass
-            else:
-                self.bloxstrap_path.mkdir(parents=True, exist_ok=True)
-            
-            if item_path.is_dir():
-                dest_path = self.bloxstrap_path / item_name
-                shutil.copytree(item_path, dest_path)
-                self.log(f"Copied folder: {item_name}")
-            else:
-                folder_name = item_path.stem
-                dest_folder = self.bloxstrap_path / folder_name
-                dest_folder.mkdir(exist_ok=True)
-                
-                if item_path.suffix.lower() in ['.zip', '.roblox']:
-                    with zipfile.ZipFile(item_path, 'r') as zip_ref:
-                        zip_ref.extractall(dest_folder)
-                else:
-                    shutil.copy2(item_path, dest_folder / item_path.name)
-            
-            self.log("Activation complete!")
-            self.refresh_current_version()
-            
-            if self.sound_manager.enabled:
-                self.sound_manager.play_complete()
-            
-        except Exception as e:
-            self.log(f"Error: {e}")
-            if self.sound_manager.enabled:
-                self.sound_manager.play_error()
-            
-    def apply_dark_textures(self):
-        current_version = self.get_current_version_path()
-        if not current_version:
-            self.log("No version active")
-            return
-            
-        textures_path = current_version / "PlatformContent" / "pc" / "textures"
-        
-        if not self.dt_textures_path.exists():
-            self.log("Dark textures not found")
-            return
-            
-        self.log("Applying dark textures...")
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
-        
-        self.texture_thread = TextureApplyThread(self.dt_textures_path, textures_path, clear_first=True)
-        self.texture_thread.progress.connect(self.log)
-        self.texture_thread.finished.connect(self.texture_finished)
-        self.texture_thread.start()
-        
-    def apply_normal_textures(self):
-        current_version = self.get_current_version_path()
-        if not current_version:
-            self.log("No version active")
-            return
-            
-        textures_path = current_version / "PlatformContent" / "pc" / "textures"
-        
-        if not textures_path.exists():
-            self.log("Textures folder not found")
-            return
-            
-        if not self.nt_textures_path.exists():
-            self.log("Normal textures not found")
-            return
-            
-        self.log("Restoring normal textures...")
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
-        
-        self.texture_thread = TextureApplyThread(self.nt_textures_path, textures_path, clear_first=True)
-        self.texture_thread.progress.connect(self.log)
-        self.texture_thread.finished.connect(self.texture_finished)
-        self.texture_thread.start()
-        
-    def texture_finished(self, count):
-        self.progress_bar.setVisible(False)
-        self.log(f"Complete! Processed {count} items")
-        if self.sound_manager.enabled:
-            self.sound_manager.play_complete()
-        
+    
     def open_settings(self):
+        """Open settings dialog"""
         dialog = SettingsDialog(self)
         if dialog.exec():
-            self.refresh_versions()
+            self.apply_theme()
             self.refresh_current_version()
-        
-    def load_settings(self):
-        settings = QSettings("DRCM", "Settings")
-        self.bg_color = settings.value("bg_color", "#1a1a2e")
-        self.accent_color = settings.value("accent_color", "#4a6fa5")
-        self.text_color = settings.value("text_color", "#e0e0e0")
-        transparency = max(15, int(settings.value("transparency", 100)))
-        self.window_transparency = transparency / 100.0
-        volume = int(settings.value("volume", 50))
-        enable_sounds = settings.value("enable_sounds", True, type=bool)
-        
-        self.sound_manager.set_volume(volume)
-        self.sound_manager.enabled = enable_sounds
-        
-        self.setWindowOpacity(self.window_transparency)
-        
+    
     def apply_theme(self):
+        """Apply current theme colors"""
         self.setStyleSheet(f"""
             QMainWindow {{
                 background-color: {self.bg_color};
             }}
             
             QLabel, QTreeWidget, QTextEdit, QLineEdit, QComboBox {{
-                color: {self.text_color};
+                color: #e0e0e0;
             }}
             
             QPushButton {{
@@ -1744,84 +1209,26 @@ class RobloxVersionManager(QMainWindow):
             
             QHeaderView::section {{
                 background-color: {self.lighten_color(self.bg_color, 1.2)};
-                color: {self.text_color};
+                color: #e0e0e0;
                 padding: 4px;
                 border: none;
             }}
             
-            QComboBox {{
-                background-color: {self.lighten_color(self.bg_color, 1.1)};
-                border: 1px solid {self.accent_color};
-                border-radius: 4px;
-                padding: 4px;
-            }}
-            
-            QComboBox::drop-down {{
-                border: none;
-            }}
-            
-            QComboBox QAbstractItemView {{
-                background-color: {self.lighten_color(self.bg_color, 1.1)};
-                selection-background-color: {self.accent_color};
-            }}
-            
-            QLineEdit {{
+            QComboBox, QLineEdit {{
                 background-color: {self.lighten_color(self.bg_color, 1.1)};
                 border: 1px solid {self.accent_color};
                 border-radius: 4px;
                 padding: 6px;
             }}
-            
-            QLineEdit:focus {{
-                border: 2px solid {self.accent_color};
-            }}
-            
-            QProgressBar {{
-                background-color: {self.lighten_color(self.bg_color, 1.2)};
-                border-radius: 2px;
-            }}
-            
-            QProgressBar::chunk {{
-                background-color: {self.accent_color};
-                border-radius: 2px;
-            }}
-            
-            QMenuBar {{
-                background-color: {self.darken_color(self.bg_color, 0.9)};
-                color: {self.text_color};
-            }}
-            
-            QMenu {{
-                background-color: {self.darken_color(self.bg_color, 0.9)};
-                color: {self.text_color};
-            }}
-            
-            QMenu::item:selected {{
-                background-color: {self.accent_color};
-            }}
-            
-            QScrollBar:vertical {{
-                background-color: {self.darken_color(self.bg_color, 0.9)};
-                width: 10px;
-                border-radius: 5px;
-            }}
-            
-            QScrollBar::handle:vertical {{
-                background-color: {self.accent_color};
-                border-radius: 5px;
-                min-height: 20px;
-            }}
-            
-            QScrollBar::handle:vertical:hover {{
-                background-color: {self.lighten_color(self.accent_color, 1.2)};
-            }}
         """)
-        
+    
     def lighten_color(self, color, factor):
+        """Lighten a color by factor"""
         qcolor = QColor(color)
         return qcolor.lighter(int(100 * factor)).name()
-        
+    
     def darken_color(self, color, factor):
+        """Darken a color by factor"""
         qcolor = QColor(color)
         return qcolor.darker(int(100 / factor)).name()
 
